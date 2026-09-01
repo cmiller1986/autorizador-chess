@@ -126,8 +126,17 @@ def escribir_elemento_humano(driver, elemento, texto):
             elemento,
         )
         time.sleep(0.1)
-    except Exception as e:
-        log_msg(f"⚠️ Error al escribir en campo: {e}")
+    except Exception:
+        # Respaldo si el elemento se vuelve 'stale' por renderizado del framework web
+        try:
+            driver.execute_script(
+                "arguments[0].value = arguments[1];"
+                "arguments[0].dispatchEvent(new Event('input', { bubbles: true }));"
+                "arguments[0].dispatchEvent(new Event('change', { bubbles: true }));",
+                elemento, texto
+            )
+        except Exception as e:
+            log_msg(f"⚠️ Error al escribir en campo: {str(e).split('\n')[0]}")
 
 def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, texto_mensaje):
     st.session_state.log_ejecucion = []
