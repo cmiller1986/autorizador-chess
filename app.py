@@ -268,7 +268,7 @@ def vista_login():
                 st.warning("Por favor complete usuario y contraseña.")
                 return
 
-            # Si el usuario no ingresó un '@', le formateamos un email válido para Supabase
+            # Formateo automático de correo
             if "@" not in user_input:
                 email_supabase = f"{user_input.strip().lower()}@chesserp.local"
                 usuario_erp = user_input.strip()
@@ -299,7 +299,7 @@ def vista_login():
                         })
                         st.success(f"✅ Usuario '{usuario_erp}' registrado exitosamente. Ya puede iniciar sesión.")
                     except Exception as e:
-                        st.error(f"❌ Error al registrar: {e}")                  st.error(f"❌ Error al registrar: {e}")
+                        st.error(f"❌ Error al registrar: {e}")
 
 # --- PANTALLA 2: PRINCIPAL ---
 def vista_principal():
