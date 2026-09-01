@@ -189,14 +189,19 @@ def validar_credenciales_erp(usuario, password, url_servidor):
         if btn_target:
             driver.execute_script("arguments[0].click();", btn_target[0])
 
-        time.sleep(2)
+        time.sleep(2.5)
         
-        errores_alert = driver.find_elements(By.XPATH, "//*[contains(@class, 'error') or contains(@class, 'alert-danger') or contains(text(), 'incorrecta') or contains(text(), 'inválido')]")
-        mensajes_error = [e.text for e in errores_alert if e.is_displayed() and e.text.strip()]
+        # Búsqueda ESTRICTA: Solo falla si existe un mensaje explícito de credenciales inválidas
+        errores_credenciales = driver.find_elements(
+            By.XPATH, 
+            "//*[contains(text(), 'Usuario o contraseña incorrecta') or contains(text(), 'Contraseña incorrecta') or contains(text(), 'Usuario no encontrado') or contains(text(), 'Credenciales inválidas')]"
+        )
+        mensajes_validos_error = [e.text for e in errores_credenciales if e.is_displayed() and e.text.strip()]
 
-        if mensajes_error:
-            return False, mensajes_error[0]
+        if mensajes_validos_error:
+            return False, mensajes_validos_error[0]
         
+        # Si no hay mensajes explícitos de clave errónea, la validación se aprueba
         return True, "Credenciales válidas"
 
     except Exception as e:
@@ -204,7 +209,7 @@ def validar_credenciales_erp(usuario, password, url_servidor):
     finally:
         if driver:
             driver.quit()
-
+            
 def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, texto_mensaje):
     st.session_state.log_ejecucion = []
     
