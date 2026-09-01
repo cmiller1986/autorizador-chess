@@ -257,27 +257,34 @@ def vista_login():
     opcion = st.radio("Acción:", ["Iniciar Sesión", "Registrar Usuario"], horizontal=True)
 
     with st.form("auth_form"):
-        email = st.text_input("Correo electrónico / Usuario Supabase")
+        user_input = st.text_input("Usuario / Correo Supabase")
         pwd = st.text_input("Contraseña Supabase", type="password")
         pwd_erp = st.text_input("Contraseña ERP (si difiere de Supabase):", type="password")
         
         submit = st.form_submit_button("CONTINUAR", use_container_width=True)
         
         if submit:
-            if not email or not pwd:
-                st.warning("Por favor complete correo y contraseña.")
+            if not user_input or not pwd:
+                st.warning("Por favor complete usuario y contraseña.")
                 return
+
+            # Si el usuario no ingresó un '@', le formateamos un email válido para Supabase
+            if "@" not in user_input:
+                email_supabase = f"{user_input.strip().lower()}@chesserp.local"
+                usuario_erp = user_input.strip()
+            else:
+                email_supabase = user_input.strip().lower()
+                usuario_erp = user_input.split("@")[0]
 
             if opcion == "Iniciar Sesión":
                 with st.spinner("Autenticando en Supabase..."):
                     try:
                         res = supabase.auth.sign_in_with_password({
-                            "email": email,
+                            "email": email_supabase,
                             "password": pwd
                         })
                         st.session_state.autenticado = True
-                        # Extraemos el nombre de usuario del email antes del '@'
-                        st.session_state.usuario = email.split("@")[0]
+                        st.session_state.usuario = usuario_erp
                         st.session_state.password = pwd_erp if pwd_erp else pwd
                         st.rerun()
                     except Exception as e:
@@ -287,12 +294,12 @@ def vista_login():
                 with st.spinner("Creando usuario en Supabase..."):
                     try:
                         supabase.auth.sign_up({
-                            "email": email,
+                            "email": email_supabase,
                             "password": pwd
                         })
-                        st.success("✅ Usuario registrado exitosamente. Ya puede iniciar sesión.")
+                        st.success(f"✅ Usuario '{usuario_erp}' registrado exitosamente. Ya puede iniciar sesión.")
                     except Exception as e:
-                        st.error(f"❌ Error al registrar: {e}")
+                        st.error(f"❌ Error al registrar: {e}")                  st.error(f"❌ Error al registrar: {e}")
 
 # --- PANTALLA 2: PRINCIPAL ---
 def vista_principal():
