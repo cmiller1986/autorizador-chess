@@ -127,7 +127,7 @@ def escribir_elemento_humano(driver, elemento, texto):
         )
         time.sleep(0.1)
     except Exception:
-        # Respaldo si el elemento se vuelve 'stale' por renderizado del framework web
+        # Si el elemento se vuelve 'stale', inyectamos por JS silenciosamente sin ensuciar el log
         try:
             driver.execute_script(
                 "arguments[0].value = arguments[1];"
