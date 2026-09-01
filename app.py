@@ -39,7 +39,7 @@ if "password" not in st.session_state:
 if "log_ejecucion" not in st.session_state:
     st.session_state.log_ejecucion = []
 
-# Inicializamos directamente las llaves asociadas a las cajas de texto de la UI
+# Inicializamos las llaves de los controles UI
 if "in_dom" not in st.session_state:
     st.session_state.in_dom = "No detectado"
 if "in_op" not in st.session_state:
@@ -106,7 +106,7 @@ def extraer_y_actualizar(texto_mensaje):
         ]
         motivo_raw = " ".join(resto) if resto else ""
 
-    # FORZAMOS LA SOBREESCRITURA DIRECTA DE LAS KEYS DE LOS WIDGETS
+    # Sobreescritura directa de las keys del session_state
     st.session_state["in_dom"] = dominio_ruta
     st.session_state["in_op"] = operador
     st.session_state["in_tick"] = ticket
@@ -136,6 +136,74 @@ def escribir_elemento_humano(driver, elemento, texto):
             )
         except Exception as e:
             log_msg(f"⚠️ Error al escribir en campo: {str(e).split('\n')[0]}")
+
+# --- VALIDACIÓN DINÁMICA DE CREDENCIALES ---
+def validar_credenciales_erp(usuario, password, url_servidor):
+    if not url_servidor.startswith("http://") and not url_servidor.startswith("https://"):
+        url_target = f"https://{url_servidor.strip()}"
+    else:
+        url_target = url_servidor.strip()
+
+    if "/#/admin" not in url_target:
+        url_target = (url_target.split("#")[0].rstrip("/") + "/#/admin") if "#" in url_target else f"{url_target.rstrip('/')}/#/admin"
+
+    options = webdriver.ChromeOptions()
+    options.add_argument("--headless=new")
+    options.add_argument("--window-size=1920,1080")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--ignore-certificate-errors")
+    options.add_argument("--ignore-ssl-errors=yes")
+    options.add_argument("--allow-insecure-localhost")
+
+    if sys.platform.startswith("linux"):
+        options.binary_location = "/usr/bin/chromium"
+        service = Service("/usr/bin/chromedriver")
+    else:
+        service = Service()
+        if sys.platform.startswith("win"):
+            service.creation_flags = 0x08000000
+
+    driver = None
+    try:
+        driver = webdriver.Chrome(service=service, options=options)
+        wait = WebDriverWait(driver, 12)
+
+        driver.get(url_target)
+        wait.until(EC.presence_of_element_located((By.XPATH, "//input")))
+        time.sleep(1)
+
+        inputs_texto = driver.find_elements(By.XPATH, "//input[not(@type='checkbox') and not(@type='radio') and not(@type='hidden') and not(@type='button')]")
+        input_pass = driver.find_elements(By.XPATH, "//input[@type='password']")
+        inputs_visibles = [i for i in inputs_texto if i.is_displayed()]
+
+        if inputs_visibles:
+            escribir_elemento_humano(driver, inputs_visibles[0], usuario)
+        if input_pass:
+            escribir_elemento_humano(driver, input_pass[0], password)
+
+        xpath_btn = "//button[contains(translate(text(), 'PERMITIR ACCESO', 'permitir acceso'), 'permitir acceso')]"
+        elementos = driver.find_elements(By.XPATH, xpath_btn)
+        btn_target = [e for e in elementos if e.is_displayed()]
+        if btn_target:
+            driver.execute_script("arguments[0].click();", btn_target[0])
+
+        time.sleep(2)
+        
+        errores_alert = driver.find_elements(By.XPATH, "//*[contains(@class, 'error') or contains(@class, 'alert-danger') or contains(text(), 'incorrecta') or contains(text(), 'inválido')]")
+        mensajes_error = [e.text for e in errores_alert if e.is_displayed() and e.text.strip()]
+
+        if mensajes_error:
+            return False, mensajes_error[0]
+        
+        return True, "Credenciales válidas"
+
+    except Exception as e:
+        return False, f"No se pudo conectar al ERP: {str(e).split('\n')[0]}"
+    finally:
+        if driver:
+            driver.quit()
 
 def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, texto_mensaje):
     st.session_state.log_ejecucion = []
@@ -244,7 +312,7 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
         if driver:
             driver.quit()
 
-# --- PANTALLA 1: LOGIN ---
+# --- PANTALLA 1: LOGIN (CON VALIDACIÓN ACTIVA) ---
 def vista_login():
     st.markdown("<h2 style='text-align: center;'>🔑 Inicio de Sesión CHESS ERP</h2>", unsafe_allow_html=True)
     st.markdown("---")
@@ -252,16 +320,23 @@ def vista_login():
     with st.form("login_form"):
         usr = st.text_input("Usuario ERP")
         pwd = st.text_input("Contraseña ERP", type="password")
+        srv = st.text_input("Servidor ERP para validar (URL/Dominio):", value="codenoa.chesserp.com/AR467")
+        
         submit = st.form_submit_button("🔑 INICIAR SESIÓN", use_container_width=True)
         
         if submit:
-            if usr and pwd:
-                st.session_state.autenticado = True
-                st.session_state.usuario = usr
-                st.session_state.password = pwd
-                st.rerun()
+            if usr and pwd and srv:
+                with st.spinner("Verificando credenciales con el ERP..."):
+                    valido, msg = validar_credenciales_erp(usr, pwd, srv)
+                    if valido:
+                        st.session_state.autenticado = True
+                        st.session_state.usuario = usr
+                        st.session_state.password = pwd
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Acceso Denegado: {msg}")
             else:
-                st.warning("Por favor complete usuario y contraseña.")
+                st.warning("Por favor complete todos los campos (Usuario, Contraseña y Servidor).")
 
 # --- PANTALLA 2: PRINCIPAL ---
 def vista_principal():
@@ -278,18 +353,15 @@ def vista_principal():
         height=120
     )
 
-    # Botón explícito para analizar el mensaje pegado
     if st.button("🔍 PROCESAR MENSAJE", use_container_width=True):
         extraer_y_actualizar(txt_mensaje)
         st.rerun()
 
-    # Si es la primera ejecución, parseamos el mensaje inicial
     if st.session_state.in_dom == "No detectado":
         extraer_y_actualizar(txt_mensaje)
 
     st.markdown("---")
 
-    # Campos editables (vinculados ÚNICAMENTE mediante 'key', sin la propiedad 'value')
     st.markdown("### 📋 Datos Detectados (Editables)")
     st.caption("Verifique o edite los campos manualmente antes de autorizar:")
 
@@ -301,7 +373,6 @@ def vista_principal():
         ticket_final = st.text_input("No. Ticket:", key="in_tick")
         motivo_base = st.text_input("Motivo:", key="in_mot")
 
-    # Construir el motivo final combinado si hay ticket
     if ticket_final and not motivo_base.startswith(ticket_final):
         motivo_ejecucion = f"{ticket_final} - {motivo_base}" if motivo_base else ticket_final
     else:
@@ -309,7 +380,6 @@ def vista_principal():
 
     st.markdown("---")
 
-    # Botón de Ejecución final hacia el ERP
     if st.button("🔓 PERMITIR ACCESO EN CHESS ERP", type="primary", use_container_width=True):
         if not dominio_final or dominio_final == "No detectado":
             st.error("Por favor ingrese un Servidor / Ruta URL válido.")
@@ -328,12 +398,10 @@ def vista_principal():
                 else:
                     st.error(f"❌ Error: {msg}")
 
-    # Log de Ejecución
     if st.session_state.log_ejecucion:
         st.markdown("#### 📜 Estado de Ejecución")
         st.code("\n".join(st.session_state.log_ejecucion), language="bash")
 
-    # Historial
     with st.expander("📜 Ver Historial de Autorizaciones"):
         if os.path.exists(ARCHIVO_HISTORIAL):
             with open(ARCHIVO_HISTORIAL, "r", encoding="utf-8") as f:
