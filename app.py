@@ -4,6 +4,7 @@ import time
 import os
 import sys
 from datetime import datetime
+from supabase import create_client, Client
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
@@ -29,6 +30,15 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# --- INICIALIZACIÓN DE SUPABASE ---
+@st.cache_resource
+def init_supabase() -> Client:
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
+
+supabase = init_supabase()
+
 # --- INICIALIZACIÓN DE ESTADOS ---
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
@@ -39,7 +49,7 @@ if "password" not in st.session_state:
 if "log_ejecucion" not in st.session_state:
     st.session_state.log_ejecucion = []
 
-# Inicializamos las llaves de los controles UI
+# Llaves UI
 if "in_dom" not in st.session_state:
     st.session_state.in_dom = "No detectado"
 if "in_op" not in st.session_state:
@@ -67,7 +77,6 @@ def extraer_y_actualizar(texto_mensaje):
     lineas = [l.strip() for l in texto_mensaje.split("\n") if l.strip()]
     primera_linea = lineas[0] if lineas else ""
 
-    # 1. Extracción de Operador
     if primera_linea.lower().startswith("url:") or primera_linea.lower().startswith("http"):
         operador = usuario_actual or "No detectado"
     else:
@@ -77,7 +86,6 @@ def extraer_y_actualizar(texto_mensaje):
             raw_op = re.split(r"\d+\s*min|Ahora|Ayer|\d{1,2}:\d{2}", primera_linea, flags=re.IGNORECASE)[0].strip()
         operador = raw_op if raw_op else "No detectado"
 
-    # 2. Extracción de URL/Servidor
     urls_encontradas = re.findall(r"(?:https?://)?[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?::\d+)?(?:/[^\s\n]*)?", texto_mensaje)
     if not urls_encontradas:
         urls_encontradas = re.findall(r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?::\d+)?", texto_mensaje)
@@ -87,11 +95,9 @@ def extraer_y_actualizar(texto_mensaje):
     else:
         dominio_ruta = "No detectado"
 
-    # 3. Extracción de Ticket
     match_ticket = re.search(r"(#\d+)", texto_mensaje)
     ticket = match_ticket.group(1) if match_ticket else ""
 
-    # 4. Extracción de Motivo
     match_motivo = re.search(r"[Mm]otivo:\s*(.*)", texto_mensaje, re.IGNORECASE)
     if match_motivo:
         motivo_raw = match_motivo.group(1).strip()
@@ -106,7 +112,6 @@ def extraer_y_actualizar(texto_mensaje):
         ]
         motivo_raw = " ".join(resto) if resto else ""
 
-    # Sobreescritura directa de las keys del session_state
     st.session_state["in_dom"] = dominio_ruta
     st.session_state["in_op"] = operador
     st.session_state["in_tick"] = ticket
@@ -137,79 +142,6 @@ def escribir_elemento_humano(driver, elemento, texto):
         except Exception as e:
             log_msg(f"⚠️ Error al escribir en campo: {str(e).split('\n')[0]}")
 
-# --- VALIDACIÓN DINÁMICA DE CREDENCIALES ---
-def validar_credenciales_erp(usuario, password, url_servidor):
-    if not url_servidor.startswith("http://") and not url_servidor.startswith("https://"):
-        url_target = f"https://{url_servidor.strip()}"
-    else:
-        url_target = url_servidor.strip()
-
-    if "/#/admin" not in url_target:
-        url_target = (url_target.split("#")[0].rstrip("/") + "/#/admin") if "#" in url_target else f"{url_target.rstrip('/')}/#/admin"
-
-    options = webdriver.ChromeOptions()
-    options.add_argument("--headless=new")
-    options.add_argument("--window-size=1920,1080")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--ignore-certificate-errors")
-    options.add_argument("--ignore-ssl-errors=yes")
-    options.add_argument("--allow-insecure-localhost")
-
-    if sys.platform.startswith("linux"):
-        options.binary_location = "/usr/bin/chromium"
-        service = Service("/usr/bin/chromedriver")
-    else:
-        service = Service()
-        if sys.platform.startswith("win"):
-            service.creation_flags = 0x08000000
-
-    driver = None
-    try:
-        driver = webdriver.Chrome(service=service, options=options)
-        wait = WebDriverWait(driver, 12)
-
-        driver.get(url_target)
-        wait.until(EC.presence_of_element_located((By.XPATH, "//input")))
-        time.sleep(1)
-
-        inputs_texto = driver.find_elements(By.XPATH, "//input[not(@type='checkbox') and not(@type='radio') and not(@type='hidden') and not(@type='button')]")
-        input_pass = driver.find_elements(By.XPATH, "//input[@type='password']")
-        inputs_visibles = [i for i in inputs_texto if i.is_displayed()]
-
-        if inputs_visibles:
-            escribir_elemento_humano(driver, inputs_visibles[0], usuario)
-        if input_pass:
-            escribir_elemento_humano(driver, input_pass[0], password)
-
-        xpath_btn = "//button[contains(translate(text(), 'PERMITIR ACCESO', 'permitir acceso'), 'permitir acceso')]"
-        elementos = driver.find_elements(By.XPATH, xpath_btn)
-        btn_target = [e for e in elementos if e.is_displayed()]
-        if btn_target:
-            driver.execute_script("arguments[0].click();", btn_target[0])
-
-        time.sleep(2.5)
-        
-        # Búsqueda ESTRICTA: Solo falla si existe un mensaje explícito de credenciales inválidas
-        errores_credenciales = driver.find_elements(
-            By.XPATH, 
-            "//*[contains(text(), 'Usuario o contraseña incorrecta') or contains(text(), 'Contraseña incorrecta') or contains(text(), 'Usuario no encontrado') or contains(text(), 'Credenciales inválidas')]"
-        )
-        mensajes_validos_error = [e.text for e in errores_credenciales if e.is_displayed() and e.text.strip()]
-
-        if mensajes_validos_error:
-            return False, mensajes_validos_error[0]
-        
-        # Si no hay mensajes explícitos de clave errónea, la validación se aprueba
-        return True, "Credenciales válidas"
-
-    except Exception as e:
-        return False, f"No se pudo conectar al ERP: {str(e).split('\n')[0]}"
-    finally:
-        if driver:
-            driver.quit()
-            
 def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, texto_mensaje):
     st.session_state.log_ejecucion = []
     
@@ -298,7 +230,7 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
             driver.execute_script("arguments[0].click();", btn_target[0])
 
         time.sleep(2)
-        errores_alert = driver.find_elements(By.XPATH, "//*[contains(@class, 'error') or contains(@class, 'alert-danger') or contains(text(), 'incorrecta') or contains(text(), 'inválido')]")
+        errores_alert = driver.find_elements(By.XPATH, "//*[contains(text(), 'Usuario o contraseña incorrecta') or contains(text(), 'Contraseña incorrecta') or contains(text(), 'Usuario no encontrado') or contains(text(), 'Credenciales inválidas')]")
         mensajes_error = [e.text for e in errores_alert if e.is_displayed() and e.text.strip()]
 
         if mensajes_error:
@@ -317,31 +249,50 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
         if driver:
             driver.quit()
 
-# --- PANTALLA 1: LOGIN (CON VALIDACIÓN ACTIVA) ---
+# --- PANTALLA 1: LOGIN Y REGISTRO EN SUPABASE ---
 def vista_login():
     st.markdown("<h2 style='text-align: center;'>🔑 Inicio de Sesión CHESS ERP</h2>", unsafe_allow_html=True)
     st.markdown("---")
     
-    with st.form("login_form"):
-        usr = st.text_input("Usuario ERP")
-        pwd = st.text_input("Contraseña ERP", type="password")
-        srv = st.text_input("Servidor ERP para validar (URL/Dominio):", value="codenoa.chesserp.com/AR467")
+    opcion = st.radio("Acción:", ["Iniciar Sesión", "Registrar Usuario"], horizontal=True)
+
+    with st.form("auth_form"):
+        email = st.text_input("Correo electrónico / Usuario Supabase")
+        pwd = st.text_input("Contraseña Supabase", type="password")
+        pwd_erp = st.text_input("Contraseña ERP (si difiere de Supabase):", type="password")
         
-        submit = st.form_submit_button("🔑 INICIAR SESIÓN", use_container_width=True)
+        submit = st.form_submit_button("CONTINUAR", use_container_width=True)
         
         if submit:
-            if usr and pwd and srv:
-                with st.spinner("Verificando credenciales con el ERP..."):
-                    valido, msg = validar_credenciales_erp(usr, pwd, srv)
-                    if valido:
+            if not email or not pwd:
+                st.warning("Por favor complete correo y contraseña.")
+                return
+
+            if opcion == "Iniciar Sesión":
+                with st.spinner("Autenticando en Supabase..."):
+                    try:
+                        res = supabase.auth.sign_in_with_password({
+                            "email": email,
+                            "password": pwd
+                        })
                         st.session_state.autenticado = True
-                        st.session_state.usuario = usr
-                        st.session_state.password = pwd
+                        # Extraemos el nombre de usuario del email antes del '@'
+                        st.session_state.usuario = email.split("@")[0]
+                        st.session_state.password = pwd_erp if pwd_erp else pwd
                         st.rerun()
-                    else:
-                        st.error(f"❌ Acceso Denegado: {msg}")
-            else:
-                st.warning("Por favor complete todos los campos (Usuario, Contraseña y Servidor).")
+                    except Exception as e:
+                        st.error(f"❌ Acceso denegado: {e}")
+
+            elif opcion == "Registrar Usuario":
+                with st.spinner("Creando usuario en Supabase..."):
+                    try:
+                        supabase.auth.sign_up({
+                            "email": email,
+                            "password": pwd
+                        })
+                        st.success("✅ Usuario registrado exitosamente. Ya puede iniciar sesión.")
+                    except Exception as e:
+                        st.error(f"❌ Error al registrar: {e}")
 
 # --- PANTALLA 2: PRINCIPAL ---
 def vista_principal():
