@@ -39,15 +39,15 @@ if "password" not in st.session_state:
 if "log_ejecucion" not in st.session_state:
     st.session_state.log_ejecucion = []
 
-# Campos editables iniciales
-if "dominio_val" not in st.session_state:
-    st.session_state.dominio_val = "No detectado"
-if "operador_val" not in st.session_state:
-    st.session_state.operador_val = "No detectado"
-if "ticket_val" not in st.session_state:
-    st.session_state.ticket_val = ""
-if "motivo_val" not in st.session_state:
-    st.session_state.motivo_val = ""
+# Inicializamos directamente las llaves asociadas a las cajas de texto de la UI
+if "in_dom" not in st.session_state:
+    st.session_state.in_dom = "No detectado"
+if "in_op" not in st.session_state:
+    st.session_state.in_op = "No detectado"
+if "in_tick" not in st.session_state:
+    st.session_state.in_tick = ""
+if "in_mot" not in st.session_state:
+    st.session_state.in_mot = ""
 
 # --- FUNCIONES AUXILIARES ---
 def log_msg(msg):
@@ -106,11 +106,11 @@ def extraer_y_actualizar(texto_mensaje):
         ]
         motivo_raw = " ".join(resto) if resto else ""
 
-    # Actualizamos los valores
-    st.session_state.dominio_val = dominio_ruta
-    st.session_state.operador_val = operador
-    st.session_state.ticket_val = ticket
-    st.session_state.motivo_val = motivo_raw
+    # FORZAMOS LA SOBREESCRITURA DIRECTA DE LAS KEYS DE LOS WIDGETS
+    st.session_state["in_dom"] = dominio_ruta
+    st.session_state["in_op"] = operador
+    st.session_state["in_tick"] = ticket
+    st.session_state["in_mot"] = motivo_raw
 
 def escribir_elemento_humano(driver, elemento, texto):
     try:
@@ -127,7 +127,6 @@ def escribir_elemento_humano(driver, elemento, texto):
         )
         time.sleep(0.1)
     except Exception:
-        # Si el elemento se vuelve 'stale', inyectamos por JS silenciosamente sin ensuciar el log
         try:
             driver.execute_script(
                 "arguments[0].value = arguments[1];"
@@ -167,7 +166,6 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
     try:
         log_msg("Iniciando navegador Chrome optimizado...")
         
-        # --- COMPATIBILIDAD CON WINDOWS Y LINUX (STREAMLIT CLOUD) ---
         if sys.platform.startswith("linux"):
             options.binary_location = "/usr/bin/chromium"
             service = Service("/usr/bin/chromedriver")
@@ -285,23 +283,23 @@ def vista_principal():
         extraer_y_actualizar(txt_mensaje)
         st.rerun()
 
-    # Si es la primera ejecución, parseamos el mensaje por defecto automáticamente
-    if st.session_state.dominio_val == "No detectado":
+    # Si es la primera ejecución, parseamos el mensaje inicial
+    if st.session_state.in_dom == "No detectado":
         extraer_y_actualizar(txt_mensaje)
 
     st.markdown("---")
 
-    # Campos editables
+    # Campos editables (vinculados ÚNICAMENTE mediante 'key', sin la propiedad 'value')
     st.markdown("### 📋 Datos Detectados (Editables)")
     st.caption("Verifique o edite los campos manualmente antes de autorizar:")
 
     col1, col2 = st.columns(2)
     with col1:
-        dominio_final = st.text_input("Servidor / Ruta URL:", value=st.session_state.dominio_val, key="in_dom")
-        operador_final = st.text_input("Operador Autorizado:", value=st.session_state.operador_val, key="in_op")
+        dominio_final = st.text_input("Servidor / Ruta URL:", key="in_dom")
+        operador_final = st.text_input("Operador Autorizado:", key="in_op")
     with col2:
-        ticket_final = st.text_input("No. Ticket:", value=st.session_state.ticket_val, key="in_tick")
-        motivo_base = st.text_input("Motivo:", value=st.session_state.motivo_val, key="in_mot")
+        ticket_final = st.text_input("No. Ticket:", key="in_tick")
+        motivo_base = st.text_input("Motivo:", key="in_mot")
 
     # Construir el motivo final combinado si hay ticket
     if ticket_final and not motivo_base.startswith(ticket_final):
