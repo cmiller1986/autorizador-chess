@@ -249,58 +249,54 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
         if driver:
             driver.quit()
 
-# --- PANTALLA 1: LOGIN Y REGISTRO EN SUPABASE ---
+# --- PANTALLA 1: LOGIN Y REGISTRO (SOLO USUARIO Y CONTRASEÑA) ---
 def vista_login():
-    st.markdown("<h2 style='text-align: center;'>🔑 Inicio de Sesión CHESS ERP</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center;'>🔑 Acceso CHESS ERP</h2>", unsafe_allow_html=True)
     st.markdown("---")
     
     opcion = st.radio("Acción:", ["Iniciar Sesión", "Registrar Usuario"], horizontal=True)
 
     with st.form("auth_form"):
-        user_input = st.text_input("Usuario / Correo Supabase")
-        pwd = st.text_input("Contraseña Supabase", type="password")
-        pwd_erp = st.text_input("Contraseña ERP (si difiere de Supabase):", type="password")
+        usr_input = st.text_input("Usuario")
+        pwd = st.text_input("Contraseña", type="password")
+        pwd_erp = st.text_input("Contraseña ERP (opcional si es diferente):", type="password")
         
         submit = st.form_submit_button("CONTINUAR", use_container_width=True)
         
         if submit:
-            if not user_input or not pwd:
-                st.warning("Por favor complete usuario y contraseña.")
+            if not usr_input or not pwd:
+                st.warning("Por favor ingrese usuario y contraseña.")
                 return
 
-            # Formateo automático de correo
-            if "@" not in user_input:
-                email_supabase = f"{user_input.strip().lower()}@chesserp.local"
-                usuario_erp = user_input.strip()
-            else:
-                email_supabase = user_input.strip().lower()
-                usuario_erp = user_input.split("@")[0]
+            # Mapeo interno invisible: convierte el usuario en un identificador compatible con Supabase
+            usuario_limpio = usr_input.strip().lower()
+            email_interno = f"{usuario_limpio}@chesserp.com"
 
             if opcion == "Iniciar Sesión":
-                with st.spinner("Autenticando en Supabase..."):
+                with st.spinner("Verificando usuario..."):
                     try:
                         res = supabase.auth.sign_in_with_password({
-                            "email": email_supabase,
+                            "email": email_interno,
                             "password": pwd
                         })
                         st.session_state.autenticado = True
-                        st.session_state.usuario = usuario_erp
+                        st.session_state.usuario = usr_input.strip()
                         st.session_state.password = pwd_erp if pwd_erp else pwd
                         st.rerun()
                     except Exception as e:
-                        st.error(f"❌ Acceso denegado: {e}")
+                        st.error("❌ Usuario o contraseña incorrectos.")
 
             elif opcion == "Registrar Usuario":
-                with st.spinner("Creando usuario en Supabase..."):
+                with st.spinner("Registrando nuevo usuario..."):
                     try:
                         supabase.auth.sign_up({
-                            "email": email_supabase,
+                            "email": email_interno,
                             "password": pwd
                         })
-                        st.success(f"✅ Usuario '{usuario_erp}' registrado exitosamente. Ya puede iniciar sesión.")
+                        st.success(f"✅ Usuario '{usr_input.strip()}' registrado exitosamente. Ahora puede iniciar sesión.")
                     except Exception as e:
                         st.error(f"❌ Error al registrar: {e}")
-
+                        
 # --- PANTALLA 2: PRINCIPAL ---
 def vista_principal():
     st.sidebar.title(f"👤 {st.session_state.usuario}")
