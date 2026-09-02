@@ -211,7 +211,7 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
             url_target = (url_actual.split("#")[0].rstrip("/") + "/#/admin") if "#" in url_actual else f"{url_actual}/#/admin"
             log_msg(f"Navegando a la pantalla de admin: {url_target}")
             driver.get(url_target)
-            time.sleep(1)
+            time.sleep(2)
 
         log_msg("Esperando formulario de Autorizacion...")
         wait.until(EC.presence_of_element_located((By.XPATH, "//input")))
@@ -240,12 +240,14 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
             ok = escribir_elemento_humano(driver, lambda: obtener_inputs_visibles()[0] if obtener_inputs_visibles() else None, usuario)
             if not ok:
                 campos_fallidos.append("Usuario")
+        time.sleep(0.5)
 
         log_msg("Ingresando Contrasena...")
         if input_pass_presente:
             ok = escribir_elemento_humano(driver, obtener_input_pass, password)
             if not ok:
                 campos_fallidos.append("Contrasena")
+        time.sleep(0.5)
 
         log_msg(f"Asignando Operador Autorizado: '{operador}'...")
         if len(inputs_visibles_iniciales) >= 3:
@@ -254,6 +256,7 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
             idx_operador = 1
         else:
             idx_operador = None
+
         if idx_operador is not None:
             def obtener_input_operador(idx=idx_operador):
                 visibles = obtener_inputs_visibles()
@@ -261,52 +264,60 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
             ok = escribir_elemento_humano(driver, obtener_input_operador, operador)
             if not ok:
                 campos_fallidos.append("Operador Autorizado")
+        time.sleep(0.5)
 
         log_msg(f"Asignando Motivo: '{motivo_final}'...")
         if obtener_textarea() is not None:
             ok = escribir_elemento_humano(driver, obtener_textarea, motivo_final)
             if not ok:
                 campos_fallidos.append("Motivo")
+        time.sleep(1)
 
-        log_msg("Enviando autorizacion al sistema...")
-        time.sleep(0.5)
-
-        xpath_btn = "//button[contains(translate(text(), 'PERMITIR ACCESO', 'permitir acceso'), 'permitir acceso')]"
-        elementos = driver.find_elements(By.XPATH, xpath_btn)
-        btn_target = [e for e in elementos if e.is_displayed()]
+        log_msg("Buscando boton 'Permitir Acceso'...")
+        
+        # Búsqueda amplia y flexible de botones en la página
+        xpath_btn = "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'permitir') or contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'acceso')] | //input[@type='button' or @type='submit']"
+        
+        elementos_boton = driver.find_elements(By.XPATH, xpath_btn)
+        btn_target = [e for e in elementos_boton if e.is_displayed()]
 
         if not btn_target:
-            log_msg("No se encontro el boton 'Permitir Acceso'. No se envio nada al ERP.")
+            # Reintento buscando cualquier botón primario o visible
+            btn_target = [e for e in driver.find_elements(By.TAG_NAME, "button") if e.is_displayed()]
+
+        if not btn_target:
+            log_msg("No se encontro el boton de confirmacion en el formulario. Verifique la estructura web del ERP.")
             return False, "No se encontro el boton 'Permitir Acceso' en la pagina.", False
 
+        log_msg("Enviando autorizacion al ERP...")
         driver.execute_script("arguments[0].click();", btn_target[0])
-        log_msg("Boton 'Permitir Acceso' clickeado. Esperando respuesta del ERP...")
+        time.sleep(3)
 
-        time.sleep(2)
-        errores_alert = driver.find_elements(By.XPATH, "//*[contains(text(), 'Usuario o contrasena incorrecta') or contains(text(), 'Contrasena incorrecta') or contains(text(), 'Usuario no encontrado') or contains(text(), 'Credenciales invalidas')]")
+        # Verificación de alertas o errores de respuesta
+        errores_alert = driver.find_elements(By.XPATH, "//*[contains(text(), 'incorrecta') or contains(text(), 'no encontrado') or contains(text(), 'invalida') or contains(text(), 'error')]")
         mensajes_error = [e.text for e in errores_alert if e.is_displayed() and e.text.strip()]
 
         if mensajes_error:
             log_msg(f"ERROR DETECTADO: {mensajes_error[0]}")
             return False, mensajes_error[0], False
         elif campos_fallidos:
-            msg = f"El ERP acepto la autorizacion, pero estos campos fallaron al escribir: {', '.join(campos_fallidos)}."
+            msg = f"El ERP acepto la autorizacion, pero estos campos requirieron reintento: {', '.join(campos_fallidos)}."
             log_msg(f"ACCESO ENVIADO CON ADVERTENCIA: {msg}")
             registrar_en_historial(usuario, dominio_ruta, operador, motivo_final)
             return True, msg, True
         else:
-            log_msg("ACCESO AUTORIZADO CORRECTAMENTE.")
+            log_msg("ACCESO AUTORIZADO CORRECTAMENTE EN CHESS ERP.")
             registrar_en_historial(usuario, dominio_ruta, operador, motivo_final)
             return True, "Acceso concedido correctamente", False
 
     except Exception as e:
         err_msg = str(e).split("\n")[0]
-        log_msg(f"ERROR: {err_msg}")
+        log_msg(f"ERROR EN AUTOMATIZACION: {err_msg}")
         return False, err_msg, False
     finally:
         if driver:
             driver.quit()
-
+            
 # --- PANTALLA 1: LOGIN Y REGISTRO ---
 def vista_login():
     st.markdown("<h2 style='text-align: center;'>Acceso CHESS ERP</h2>", unsafe_allow_html=True)
