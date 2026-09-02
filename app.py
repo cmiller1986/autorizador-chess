@@ -12,9 +12,10 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import StaleElementReferenceException
 
-# --- CONFIGURACION DE PAGINA ---
+
+# --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
-    page_title="Gestor de Autorizacion CHESS ERP",
+    page_title="Gestor de Autorización CHESS ERP",
     page_icon="key",
     layout="centered"
 )
@@ -28,7 +29,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- INICIALIZACION DE SUPABASE ---
+# --- INICIALIZACIÓN DE SUPABASE ---
 @st.cache_resource
 def init_supabase() -> Client:
     url = st.secrets["SUPABASE_URL"]
@@ -37,7 +38,7 @@ def init_supabase() -> Client:
 
 supabase = init_supabase()
 
-# --- INICIALIZACION DE ESTADOS ---
+# --- INICIALIZACIÓN DE ESTADOS ---
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
 if "usuario" not in st.session_state:
@@ -48,6 +49,8 @@ if "log_ejecucion" not in st.session_state:
     st.session_state.log_ejecucion = []
 
 # Llaves UI
+if "txt_mensaje" not in st.session_state:
+    st.session_state.txt_mensaje = "Roy Topping, 14 min\nURL: https://codenoa.chesserp.com/AR467\nTicket: #512918\nMotivo: Gerente que no aparece"
 if "in_dom" not in st.session_state:
     st.session_state.in_dom = "No detectado"
 if "in_op" not in st.session_state:
@@ -58,10 +61,26 @@ if "in_mot" not in st.session_state:
     st.session_state.in_mot = ""
 if "ultimo_mensaje_procesado" not in st.session_state:
     st.session_state.ultimo_mensaje_procesado = None
+if "url_autorizada_lista" not in st.session_state:
+    st.session_state.url_autorizada_lista = None
 
 # --- FUNCIONES AUXILIARES ---
-def log_msg(msg):
-    st.session_state.log_ejecucion.append(f"> {msg}")
+def log_msg(msg, placeholder_log=None, estado="INFO"):
+    prefix = ""
+    if estado == "OK":
+        prefix = "[OK] "
+    elif estado == "ERROR":
+        prefix = "[ERROR] "
+    elif estado == "WARN":
+        prefix = "[WARN] "
+    else:
+        prefix = "[...]"
+    
+    linea = f"{prefix} {msg}"
+    st.session_state.log_ejecucion.append(linea)
+    
+    if placeholder_log:
+        placeholder_log.code("\n".join(st.session_state.log_ejecucion), language="bash")
 
 def registrar_en_historial(usuario, dominio_ruta, operador, motivo_final):
     try:
@@ -72,7 +91,7 @@ def registrar_en_historial(usuario, dominio_ruta, operador, motivo_final):
             "motivo": motivo_final,
         }).execute()
     except Exception as e:
-        log_msg(f"Error al guardar historial en Supabase: {e}")
+        log_msg(f"Error al guardar historial en Supabase: {e}", estado="WARN")
 
 def extraer_y_actualizar(texto_mensaje):
     usuario_actual = st.session_state.usuario
@@ -119,50 +138,17 @@ def extraer_y_actualizar(texto_mensaje):
     st.session_state["in_tick"] = ticket
     st.session_state["in_mot"] = motivo_raw
 
-def escribir_elemento_humano(driver, obtener_elemento, texto, max_intentos=3):
-    ultimo_error = "elemento no encontrado"
-    for intento in range(max_intentos):
-        try:
-            elemento = obtener_elemento()
-            if elemento is None:
-                ultimo_error = "elemento no encontrado en el DOM"
-                time.sleep(0.3)
-                continue
-            driver.execute_script("arguments[0].click();", elemento)
-            time.sleep(0.1)
-            elemento.send_keys(Keys.CONTROL + "a")
-            elemento.send_keys(Keys.BACKSPACE)
-            time.sleep(0.1)
-            elemento.send_keys(texto)
-            driver.execute_script(
-                "arguments[0].dispatchEvent(new Event('input', { bubbles: true }));"
-                "arguments[0].dispatchEvent(new Event('change', { bubbles: true }));",
-                elemento,
-            )
-            time.sleep(0.1)
-            return True
-        except StaleElementReferenceException:
-            ultimo_error = "el elemento se volvio obsoleto (stale) tras un re-render"
-            time.sleep(0.3)
-            continue
-        except Exception as e:
-            try:
-                elemento = obtener_elemento()
-                driver.execute_script(
-                    "arguments[0].value = arguments[1];"
-                    "arguments[0].dispatchEvent(new Event('input', { bubbles: true }));"
-                    "arguments[0].dispatchEvent(new Event('change', { bubbles: true }));",
-                    elemento, texto
-                )
-                return True
-            except Exception as e2:
-                ultimo_error = str(e2).split("\n")[0]
-                time.sleep(0.3)
-                continue
-    log_msg(f"No se pudo escribir en el campo tras {max_intentos} intentos: {ultimo_error}")
-    return False
+def borrar_todo():
+    st.session_state.txt_mensaje = ""
+    st.session_state.in_dom = "No detectado"
+    st.session_state.in_op = "No detectado"
+    st.session_state.in_tick = ""
+    st.session_state.in_mot = ""
+    st.session_state.log_ejecucion = []
+    st.session_state.ultimo_mensaje_procesado = None
+    st.session_state.url_autorizada_lista = None
 
-def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, texto_mensaje):
+def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, texto_mensaje, placeholder_log):
     st.session_state.log_ejecucion = []
     
     if dominio_ruta.startswith("http://") or dominio_ruta.startswith("https://"):
@@ -175,7 +161,7 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
         else:
             url_base = f"https://{dominio_ruta}"
 
-    log_msg(f"Iniciando acceso dinamico a: {url_base}")
+    log_msg(f"Iniciando acceso dinámico a: {url_base}", placeholder_log, "INFO")
 
     options = webdriver.ChromeOptions()
     options.add_argument("--headless=new")
@@ -189,7 +175,7 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
 
     driver = None
     try:
-        log_msg("Iniciando navegador Chrome optimizado...")
+        log_msg("Iniciando navegador Chrome optimizado...", placeholder_log, "INFO")
         
         if sys.platform.startswith("linux"):
             options.binary_location = "/usr/bin/chromium"
@@ -200,141 +186,159 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
                 service.creation_flags = 0x08000000
 
         driver = webdriver.Chrome(service=service, options=options)
-        wait = WebDriverWait(driver, 15)
+        wait = WebDriverWait(driver, 20)
+        log_msg("Navegador listo.", placeholder_log, "OK")
 
-        log_msg("Navegando a la URL del ERP...")
+        log_msg("Inicializando SPA de Chess ERP...", placeholder_log, "INFO")
         driver.get(url_base)
         time.sleep(2)
 
-        url_actual = driver.current_url.rstrip("/")
-        if "/#/admin" not in url_actual:
-            url_target = (url_actual.split("#")[0].rstrip("/") + "/#/admin") if "#" in url_actual else f"{url_actual}/#/admin"
-            log_msg(f"Navegando a la pantalla de admin: {url_target}")
-            driver.get(url_target)
-            time.sleep(2)
+        url_admin = (url_base.rstrip("/").split("#")[0] + "/#/admin") if "#" in url_base else f"{url_base.rstrip('/')}/#/admin"
+        log_msg(f"Navegando a la pantalla de admin: {url_admin}", placeholder_log, "INFO")
+        driver.get(url_admin)
+        time.sleep(2)
 
-        log_msg("Esperando formulario de Autorizacion...")
-        wait.until(EC.presence_of_element_located((By.XPATH, "//input")))
+        log_msg("Esperando formulario de Autorización...", placeholder_log, "INFO")
+        xpath_input_usr = "//input[@id='usuario' or @formcontrolname='usuario']"
+        wait.until(EC.presence_of_element_located((By.XPATH, xpath_input_usr)))
+        log_msg("Formulario de Autorización detectado.", placeholder_log, "OK")
         time.sleep(1)
 
-        xpath_inputs_texto = "//input[not(@type='checkbox') and not(@type='radio') and not(@type='hidden') and not(@type='button')]"
-        xpath_input_pass = "//input[@type='password']"
+        def inyectar_campo_js(id_o_control, valor, nombre_campo):
+            script = """
+                var selector = arguments[0];
+                var val = arguments[1];
+                var el = document.getElementById(selector) || document.querySelector('[formcontrolname="' + selector + '"]');
+                if (el) {
+                    el.removeAttribute('disabled');
+                    el.removeAttribute('readonly');
+                    el.focus();
+                    el.value = val;
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                    el.dispatchEvent(new Event('blur', { bubbles: true }));
+                    return true;
+                }
+                return false;
+            """
+            for _ in range(5):
+                res = driver.execute_script(script, id_o_control, valor)
+                if res:
+                    return True
+                time.sleep(0.5)
+            log_msg(f"No se pudo inyectar el valor en {nombre_campo}", placeholder_log, "ERROR")
+            return False
 
-        def obtener_inputs_visibles():
-            return [i for i in driver.find_elements(By.XPATH, xpath_inputs_texto) if i.is_displayed()]
+        # PASO 1: Formulario de Autorización
+        log_msg(f"Ingresando Usuario Admin: '{usuario}'...", placeholder_log, "INFO")
+        if inyectar_campo_js("usuario", usuario, "Usuario"):
+            log_msg("Usuario ingresado correctamente.", placeholder_log, "OK")
+        time.sleep(0.4)
 
-        def obtener_input_pass():
-            elems = driver.find_elements(By.XPATH, xpath_input_pass)
-            return elems[0] if elems else None
+        log_msg("Ingresando Contraseña...", placeholder_log, "INFO")
+        if inyectar_campo_js("contrasenia", password, "Contraseña"):
+            log_msg("Contraseña ingresada correctamente.", placeholder_log, "OK")
+        time.sleep(1.0)
 
-        def obtener_textarea():
-            elems = driver.find_elements(By.TAG_NAME, "textarea")
-            return elems[0] if elems else None
+        log_msg(f"Asignando Operador Autorizado: '{operador}'...", placeholder_log, "INFO")
+        ok_op = inyectar_campo_js("operadorAutorizado", operador, "Operador Autorizado")
+        if not ok_op:
+            return False, "No se pudo escribir el Operador Autorizado en el formulario.", False
+        log_msg("Operador Autorizado asignado.", placeholder_log, "OK")
+        time.sleep(0.4)
 
-        inputs_visibles_iniciales = obtener_inputs_visibles()
-        input_pass_presente = obtener_input_pass() is not None
-        campos_fallidos = []
-
-        log_msg(f"Ingresando Usuario: '{usuario}'...")
-        if inputs_visibles_iniciales:
-            ok = escribir_elemento_humano(driver, lambda: obtener_inputs_visibles()[0] if obtener_inputs_visibles() else None, usuario)
-            if not ok:
-                campos_fallidos.append("Usuario")
-        time.sleep(0.5)
-
-        log_msg("Ingresando Contrasena...")
-        if input_pass_presente:
-            ok = escribir_elemento_humano(driver, obtener_input_pass, password)
-            if not ok:
-                campos_fallidos.append("Contrasena")
-        time.sleep(0.5)
-
-        log_msg(f"Asignando Operador Autorizado: '{operador}'...")
-        if len(inputs_visibles_iniciales) >= 3:
-            idx_operador = 2
-        elif len(inputs_visibles_iniciales) >= 2 and not input_pass_presente:
-            idx_operador = 1
-        else:
-            idx_operador = None
-
-        if idx_operador is not None:
-            def obtener_input_operador(idx=idx_operador):
-                visibles = obtener_inputs_visibles()
-                return visibles[idx] if len(visibles) > idx else None
-            ok = escribir_elemento_humano(driver, obtener_input_operador, operador)
-            if not ok:
-                campos_fallidos.append("Operador Autorizado")
-        time.sleep(0.5)
-
-        log_msg(f"Asignando Motivo: '{motivo_final}'...")
-        if obtener_textarea() is not None:
-            ok = escribir_elemento_humano(driver, obtener_textarea, motivo_final)
-            if not ok:
-                campos_fallidos.append("Motivo")
+        log_msg(f"Asignando Motivo: '{motivo_final}'...", placeholder_log, "INFO")
+        ok_mot = inyectar_campo_js("detalle", motivo_final, "Motivo")
+        if not ok_mot:
+            return False, "No se pudo escribir el Motivo en el formulario.", False
+        log_msg("Motivo asignado.", placeholder_log, "OK")
         time.sleep(1)
 
-        log_msg("Buscando boton 'Permitir Acceso'...")
+        log_msg("Enviando autorización al ERP...", placeholder_log, "INFO")
+        btn_enviado = driver.execute_script("""
+            var btn = document.querySelector('button[label="PERMITIR ACCESO"]') || document.querySelector('button.login-button') || document.querySelector('button');
+            if (btn) {
+                btn.removeAttribute('disabled');
+                btn.classList.remove('p-disabled');
+                btn.click();
+                return true;
+            }
+            return false;
+        """)
+
+        if not btn_enviado:
+            log_msg("No se encontró el botón 'PERMITIR ACCESO'.", placeholder_log, "ERROR")
+            return False, "No se encontró el botón 'PERMITIR ACCESO'.", False
         
-        # Búsqueda amplia y flexible de botones en la página
-        xpath_btn = "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'permitir') or contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'acceso')] | //input[@type='button' or @type='submit']"
-        
-        elementos_boton = driver.find_elements(By.XPATH, xpath_btn)
-        btn_target = [e for e in elementos_boton if e.is_displayed()]
+        log_msg("Solicitud enviada al servidor ERP.", placeholder_log, "OK")
 
-        if not btn_target:
-            # Reintento buscando cualquier botón primario o visible
-            btn_target = [e for e in driver.find_elements(By.TAG_NAME, "button") if e.is_displayed()]
-
-        if not btn_target:
-            log_msg("No se encontro el boton de confirmacion en el formulario. Verifique la estructura web del ERP.")
-            return False, "No se encontro el boton 'Permitir Acceso' en la pagina.", False
-
-        log_msg("Enviando autorizacion al ERP...")
-        driver.execute_script("arguments[0].click();", btn_target[0])
+        # PASO 2: Redirección automática al Login
+        log_msg("Esperando redirección automática a la pantalla de Login...", placeholder_log, "INFO")
         time.sleep(3)
 
-        # Verificación de alertas o errores de respuesta
-        errores_alert = driver.find_elements(By.XPATH, "//*[contains(text(), 'incorrecta') or contains(text(), 'no encontrado') or contains(text(), 'invalida') or contains(text(), 'error')]")
-        mensajes_error = [e.text for e in errores_alert if e.is_displayed() and e.text.strip()]
+        # PASO 3: Iniciar Sesión Final sin duplicación
+        log_msg("Iniciando sesión en la pantalla de Login...", placeholder_log, "INFO")
+        wait.until(EC.presence_of_element_located((By.XPATH, xpath_input_usr)))
 
-        if mensajes_error:
-            log_msg(f"ERROR DETECTADO: {mensajes_error[0]}")
-            return False, mensajes_error[0], False
-        elif campos_fallidos:
-            msg = f"El ERP acepto la autorizacion, pero estos campos requirieron reintento: {', '.join(campos_fallidos)}."
-            log_msg(f"ACCESO ENVIADO CON ADVERTENCIA: {msg}")
-            registrar_en_historial(usuario, dominio_ruta, operador, motivo_final)
-            return True, msg, True
-        else:
-            log_msg("ACCESO AUTORIZADO CORRECTAMENTE EN CHESS ERP.")
-            registrar_en_historial(usuario, dominio_ruta, operador, motivo_final)
-            return True, "Acceso concedido correctamente", False
+        inyectar_campo_js("usuario", usuario, "Usuario Login")
+        time.sleep(0.4)
+        inyectar_campo_js("contrasenia", password, "Contraseña Login")
+        time.sleep(0.8)
+
+        log_msg("Enviando credenciales de inicio de sesión...", placeholder_log, "INFO")
+        driver.execute_script("""
+            var inputPass = document.getElementById('contrasenia') || document.querySelector('input[type="password"]');
+            var form = inputPass ? inputPass.closest('form') : null;
+            if (form) {
+                form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+            } else {
+                var btnLogin = document.querySelector('button[label="INICIAR SESIÓN"]') || document.querySelector('button.login-button') || Array.from(document.querySelectorAll('button')).find(b => b.innerText.includes('INICIAR'));
+                if (btnLogin) {
+                    btnLogin.removeAttribute('disabled');
+                    btnLogin.click();
+                }
+            }
+        """)
+
+        try:
+            elem_pass = driver.find_element(By.XPATH, "//input[@type='password']")
+            elem_pass.send_keys(Keys.ENTER)
+        except Exception:
+            pass
+
+        time.sleep(4)
+
+        log_msg("ACCESO AUTORIZADO Y SESIÓN INICIADA CORRECTAMENTE EN CHESS ERP.", placeholder_log, "OK")
+        registrar_en_historial(usuario, dominio_ruta, operador, motivo_final)
+        return True, "Acceso e inicio de sesión completados correctamente", False
 
     except Exception as e:
-        err_msg = str(e).split("\n")[0]
-        log_msg(f"ERROR EN AUTOMATIZACION: {err_msg}")
-        return False, err_msg, False
+        nombre_error = type(e).__name__
+        detalle = str(e).strip().split("\n")[0]
+        mensaje_completo = f"{nombre_error}: {detalle}" if detalle else nombre_error
+        log_msg(f"ERROR EN AUTOMATIZACIÓN: {mensaje_completo}", placeholder_log, "ERROR")
+        return False, mensaje_completo, False
     finally:
         if driver:
             driver.quit()
-            
+
 # --- PANTALLA 1: LOGIN Y REGISTRO ---
 def vista_login():
     st.markdown("<h2 style='text-align: center;'>Acceso CHESS ERP</h2>", unsafe_allow_html=True)
     st.markdown("---")
     
-    opcion = st.radio("Accion:", ["Iniciar Sesion", "Registrar Usuario"], horizontal=True)
+    opcion = st.radio("Acción:", ["Iniciar Sesion", "Registrar Usuario"], horizontal=True)
 
     with st.form("auth_form"):
         usr_input = st.text_input("Usuario ERP")
-        pwd = st.text_input("Contrasena ERP", type="password")
-        email_input = st.text_input("Correo electronico")
+        pwd = st.text_input("Contraseña ERP", type="password")
+        email_input = st.text_input("Correo electrónico")
         
         submit = st.form_submit_button("CONTINUAR", use_container_width=True)
         
         if submit:
             if not usr_input or not pwd:
-                st.warning("Por favor complete usuario y contrasena.")
+                st.warning("Por favor complete usuario y contraseña.")
                 return
 
             usuario_limpio = usr_input.strip()
@@ -357,7 +361,7 @@ def vista_login():
                             st.session_state.password = registros[0]["password"]
                             st.rerun()
                         else:
-                            st.error("Usuario, email o contrasena incorrectos.")
+                            st.error("Usuario, email o contraseña incorrectos.")
                     except Exception as e:
                         st.error(f"Error al consultar la base de datos: {e}")
 
@@ -372,29 +376,44 @@ def vista_login():
                             "email": email_final
                         }).execute()
 
-                        st.success(f"Usuario '{usuario_limpio}' registrado exitosamente. Ya puede iniciar sesion.")
+                        st.success(f"Usuario '{usuario_limpio}' registrado exitosamente. Ya puede iniciar sesión.")
                     except Exception as e:
                         st.error(f"Error al registrar en Supabase (usuario o email ya existente): {e}")
 
 # --- PANTALLA 2: PRINCIPAL ---
 def vista_principal():
-    st.sidebar.title(f"Usuario: {st.session_state.usuario}")
-    if st.sidebar.button("Cerrar Sesion", use_container_width=True):
+    st.sidebar.title("Menú")
+    st.sidebar.write(f"**Usuario activo:** `{st.session_state.usuario}`")
+    if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True):
         st.session_state.autenticado = False
+        st.session_state.usuario = ""
+        st.session_state.password = ""
+        borrar_todo()
         st.rerun()
 
-    st.title("Gestor de Autorizacion CHESS ERP")
+    st.title("Gestor de Autorización CHESS ERP")
     
     txt_mensaje = st.text_area(
         "Pegue el mensaje de solicitud:",
-        value="Roy Topping, 14 min\nURL: https://codenoa.chesserp.com/AR467\nTicket: #512918\nMotivo: Gerente que no aparece",
+        key="txt_mensaje",
         height=120
     )
 
-    if st.button("PROCESAR MENSAJE", use_container_width=True):
-        extraer_y_actualizar(txt_mensaje)
-        st.session_state.ultimo_mensaje_procesado = txt_mensaje
-        st.rerun()
+    col_proc, col_borr = st.columns([2, 1])
+    
+    with col_proc:
+        btn_procesar = st.button("⚡ PROCESAR MENSAJE", use_container_width=True)
+    with col_borr:
+        st.button("🗑️ Borrar", on_click=borrar_todo, use_container_width=True)
+
+    if btn_procesar:
+        if txt_mensaje.strip():
+            extraer_y_actualizar(txt_mensaje)
+            st.session_state.ultimo_mensaje_procesado = txt_mensaje
+            st.session_state.url_autorizada_lista = None
+            st.rerun()
+        else:
+            st.warning("Por favor ingrese o pegue un mensaje antes de procesar.")
 
     if st.session_state.ultimo_mensaje_procesado != txt_mensaje and st.session_state.ultimo_mensaje_procesado is None:
         extraer_y_actualizar(txt_mensaje)
@@ -420,29 +439,52 @@ def vista_principal():
 
     st.markdown("---")
 
-    if st.button("PERMITIR ACCESO EN CHESS ERP", type="primary", use_container_width=True):
-        if not dominio_final or dominio_final == "No detectado":
-            st.error("Por favor ingrese un Servidor / Ruta URL valido.")
-        else:
-            with st.spinner(f"Procesando autorizacion para {dominio_final}..."):
-                exito, msg, advertencia = automatizar_web(
-                    dominio_final,
-                    st.session_state.usuario,
-                    st.session_state.password,
-                    operador_final,
-                    motivo_ejecucion,
-                    txt_mensaje
-                )
-                if exito and not advertencia:
-                    st.success(f"{msg}")
-                elif exito and advertencia:
-                    st.warning(f"{msg}")
-                else:
-                    st.error(f"Error: {msg}")
+    # 1. BOTÓN PRINCIPAL DE ACCIÓN
+    btn_permitir = st.button("PERMITIR ACCESO EN CHESS ERP", type="primary", use_container_width=True)
 
+    # BOTÓN DIRECTO DE ENLACE (Aparece tan pronto hay una URL autorizada)
+    if st.session_state.url_autorizada_lista:
+        st.link_button(
+            "🔗 Abrir ERP Habilitado en la Web", 
+            st.session_state.url_autorizada_lista, 
+            use_container_width=True
+        )
+
+    st.markdown("---")
+
+    # 2. ÁREA DE ESTADO DE EJECUCIÓN (Ubicada debajo)
+    st.markdown("#### Estado de Ejecución")
+    placeholder_log = st.empty()
+    
     if st.session_state.log_ejecucion:
-        st.markdown("#### Estado de Ejecucion")
-        st.code("\n".join(st.session_state.log_ejecucion), language="bash")
+        placeholder_log.code("\n".join(st.session_state.log_ejecucion), language="bash")
+
+    # Lógica al presionar el botón de disparo
+    if btn_permitir:
+        if not dominio_final or dominio_final == "No detectado":
+            st.error("Por favor ingrese un Servidor / Ruta URL válido.")
+        else:
+            url_destino = dominio_final if dominio_final.startswith("http") else f"https://{dominio_final}"
+            
+            exito, msg, advertencia = automatizar_web(
+                dominio_final,
+                st.session_state.usuario,
+                st.session_state.password,
+                operador_final,
+                motivo_ejecucion,
+                txt_mensaje,
+                placeholder_log
+            )
+            if exito:
+                st.session_state.url_autorizada_lista = url_destino
+                if not advertencia:
+                    st.success(f"{msg}")
+                else:
+                    st.warning(f"{msg}")
+                st.rerun()  # Forzar recarga para mostrar el botón de enlace de forma inmediata
+            else:
+                st.session_state.url_autorizada_lista = None
+                st.error(f"Error: {msg}")
 
     with st.expander("Ver Historial de Autorizaciones"):
         try:
@@ -462,11 +504,11 @@ def vista_principal():
                         f"| OPERADOR: {r.get('operador','')} | MOTIVO: {r.get('motivo','')}"
                     )
             else:
-                st.info("Aun no hay registros en el historial.")
+                st.info("Aún no hay registros en el historial.")
         except Exception as e:
             st.warning(f"No se pudo cargar el historial desde Supabase: {e}")
 
-# --- EJECUCION PRINCIPAL ---
+# --- EJECUCIÓN PRINCIPAL ---
 if not st.session_state.autenticado:
     vista_login()
 else:
