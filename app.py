@@ -12,10 +12,10 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import StaleElementReferenceException
 
-# --- CONFIGURACI√ìN DE P√ÅGINA ---
+# --- CONFIGURACI®ÆN DE P®¢GINA ---
 st.set_page_config(
-    page_title="Gestor de Autorizaci√≥n CHESS ERP",
-    page_icon="üîì",
+    page_title="Gestor de Autorizaci®Æn CHESS ERP",
+    page_icon="??",
     layout="centered"
 )
 
@@ -28,7 +28,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- INICIALIZACI√ìN DE SUPABASE ---
+# --- INICIALIZACI®ÆN DE SUPABASE ---
 @st.cache_resource
 def init_supabase() -> Client:
     url = st.secrets["SUPABASE_URL"]
@@ -37,7 +37,7 @@ def init_supabase() -> Client:
 
 supabase = init_supabase()
 
-# --- INICIALIZACI√ìN DE ESTADOS ---
+# --- INICIALIZACI®ÆN DE ESTADOS ---
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
 if "usuario" not in st.session_state:
@@ -72,7 +72,7 @@ def registrar_en_historial(usuario, dominio_ruta, operador, motivo_final):
             "motivo": motivo_final,
         }).execute()
     except Exception as e:
-        log_msg(f"‚ö†Ô∏è Error al guardar historial en Supabase: {e}")
+        log_msg(f"?? Error al guardar historial en Supabase: {e}")
 
 def extraer_y_actualizar(texto_mensaje):
     usuario_actual = st.session_state.usuario
@@ -120,12 +120,6 @@ def extraer_y_actualizar(texto_mensaje):
     st.session_state["in_mot"] = motivo_raw
 
 def escribir_elemento_humano(driver, obtener_elemento, texto, max_intentos=3):
-    """
-    obtener_elemento: funci√≥n sin argumentos que devuelve el WebElement actual.
-    Se vuelve a invocar en cada reintento (en vez de reusar la misma referencia)
-    para tolerar que la SPA re-renderice el DOM entre un campo y otro.
-    Devuelve True si logr√≥ escribir, False si no pudo tras varios intentos.
-    """
     ultimo_error = "elemento no encontrado"
     for intento in range(max_intentos):
         try:
@@ -148,7 +142,7 @@ def escribir_elemento_humano(driver, obtener_elemento, texto, max_intentos=3):
             time.sleep(0.1)
             return True
         except StaleElementReferenceException:
-            ultimo_error = "el elemento se volvi√≥ obsoleto (stale) tras un re-render de la p√°gina"
+            ultimo_error = "el elemento se volvi®Æ obsoleto (stale) tras un re-render de la p®¢gina"
             time.sleep(0.3)
             continue
         except Exception as e:
@@ -165,7 +159,7 @@ def escribir_elemento_humano(driver, obtener_elemento, texto, max_intentos=3):
                 ultimo_error = str(e2).split("\n")[0]
                 time.sleep(0.3)
                 continue
-    log_msg(f"‚ö†Ô∏è No se pudo escribir en el campo tras {max_intentos} intentos: {ultimo_error}")
+    log_msg(f"?? No se pudo escribir en el campo tras {max_intentos} intentos: {ultimo_error}")
     return False
 
 def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, texto_mensaje):
@@ -181,7 +175,7 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
         else:
             url_base = f"https://{dominio_ruta}"
 
-    log_msg(f"Iniciando acceso din√°mico a: {url_base}")
+    log_msg(f"Iniciando acceso din®¢mico a: {url_base}")
 
     options = webdriver.ChromeOptions()
     options.add_argument("--headless=new")
@@ -219,7 +213,7 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
             driver.get(url_target)
             time.sleep(1)
 
-        log_msg("Esperando formulario de Autorizaci√≥n...")
+        log_msg("Esperando formulario de Autorizaci®Æn...")
         wait.until(EC.presence_of_element_located((By.XPATH, "//input")))
         time.sleep(1)
 
@@ -247,11 +241,11 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
             if not ok:
                 campos_fallidos.append("Usuario")
 
-        log_msg("Ingresando Contrase√±a...")
+        log_msg("Ingresando Contrase?a...")
         if input_pass_presente:
             ok = escribir_elemento_humano(driver, obtener_input_pass, password)
             if not ok:
-                campos_fallidos.append("Contrase√±a")
+                campos_fallidos.append("Contrase?a")
 
         log_msg(f"Asignando Operador Autorizado: '{operador}'...")
         if len(inputs_visibles_iniciales) >= 3:
@@ -274,7 +268,7 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
             if not ok:
                 campos_fallidos.append("Motivo")
 
-        log_msg("Enviando autorizaci√≥n al sistema...")
+        log_msg("Enviando autorizaci®Æn al sistema...")
         time.sleep(0.5)
 
         xpath_btn = "//button[contains(translate(text(), 'PERMITIR ACCESO', 'permitir acceso'), 'permitir acceso')]"
@@ -282,106 +276,103 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
         btn_target = [e for e in elementos if e.is_displayed()]
 
         if not btn_target:
-            log_msg("‚ùå No se encontr√≥ (o no est√° visible) el bot√≥n 'Permitir Acceso'. No se envi√≥ nada al ERP.")
+            log_msg("? No se encontr®Æ (o no est®¢ visible) el bot®Æn 'Permitir Acceso'. No se envi®Æ nada al ERP.")
             try:
                 driver.save_screenshot("/tmp/debug_sin_boton.png")
-                log_msg("üì∏ Screenshot guardado en /tmp/debug_sin_boton.png para diagn√≥stico.")
+                log_msg("?? Screenshot guardado en /tmp/debug_sin_boton.png para diagn®Æstico.")
             except Exception:
                 pass
-            return False, "No se encontr√≥ el bot√≥n 'Permitir Acceso' en la p√°gina; no se realiz√≥ ninguna acci√≥n.", False
+            return False, "No se encontr®Æ el bot®Æn 'Permitir Acceso' en la p®¢gina; no se realiz®Æ ninguna acci®Æn.", False
 
         driver.execute_script("arguments[0].click();", btn_target[0])
-        log_msg("Bot√≥n 'Permitir Acceso' clickeado. Esperando respuesta del ERP...")
+        log_msg("Bot®Æn 'Permitir Acceso' clickeado. Esperando respuesta del ERP...")
 
         time.sleep(2)
         try:
             driver.save_screenshot("/tmp/debug_post_click.png")
         except Exception:
             pass
-        errores_alert = driver.find_elements(By.XPATH, "//*[contains(text(), 'Usuario o contrase√±a incorrecta') or contains(text(), 'Contrase√±a incorrecta') or contains(text(), 'Usuario no encontrado') or contains(text(), 'Credenciales inv√°lidas')]")
+        errores_alert = driver.find_elements(By.XPATH, "//*[contains(text(), 'Usuario o contrase?a incorrecta') or contains(text(), 'Contrase?a incorrecta') or contains(text(), 'Usuario no encontrado') or contains(text(), 'Credenciales inv®¢lidas')]")
         mensajes_error = [e.text for e in errores_alert if e.is_displayed() and e.text.strip()]
 
         if mensajes_error:
-            log_msg(f"‚ùå ERROR DETECTADO: {mensajes_error[0]}")
+            log_msg(f"? ERROR DETECTADO: {mensajes_error[0]}")
             return False, mensajes_error[0], False
         elif campos_fallidos:
-            msg = f"El ERP acept√≥ la autorizaci√≥n, pero estos campos no se pudieron escribir con confianza: {', '.join(campos_fallidos)}. Verific√° manualmente en el ERP."
-            log_msg(f"‚ö†Ô∏è ACCESO ENVIADO CON ADVERTENCIA: {msg}")
+            msg = f"El ERP acept®Æ la autorizaci®Æn, pero estos campos no se pudieron escribir con confianza: {', '.join(campos_fallidos)}. Verific®¢ manualmente en el ERP."
+            log_msg(f"?? ACCESO ENVIADO CON ADVERTENCIA: {msg}")
             registrar_en_historial(usuario, dominio_ruta, operador, motivo_final)
             return True, msg, True
         else:
-            log_msg("‚úÖ ACCESO AUTORIZADO CORRECTAMENTE.")
+            log_msg("? ACCESO AUTORIZADO CORRECTAMENTE.")
             registrar_en_historial(usuario, dominio_ruta, operador, motivo_final)
             return True, "Acceso concedido correctamente", False
 
     except Exception as e:
         err_msg = str(e).split("\n")[0]
-        log_msg(f"‚ùå ERROR: {err_msg}")
+        log_msg(f"? ERROR: {err_msg}")
         return False, err_msg, False
     finally:
         if driver:
             driver.quit()
 
-# --- PANTALLA 1: LOGIN Y REGISTRO (SOLO USUARIO Y CONTRASE√ëA) ---
+# --- PANTALLA 1: LOGIN Y REGISTRO ---
 def vista_login():
-    st.markdown("<h2 style='text-align: center;'>üîë Acceso CHESS ERP</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center;'>?? Acceso CHESS ERP</h2>", unsafe_allow_html=True)
     st.markdown("---")
     
-    opcion = st.radio("Acci√≥n:", ["Iniciar Sesi√≥n", "Registrar Usuario"], horizontal=True)
+    opcion = st.radio("Acci®Æn:", ["Iniciar Sesi®Æn", "Registrar Usuario"], horizontal=True)
 
     with st.form("auth_form"):
         usr_input = st.text_input("Usuario")
-        pwd = st.text_input("Contrase√±a", type="password")
-        pwd_erp = st.text_input("Contrase√±a ERP (opcional si es diferente):", type="password")
+        pwd = st.text_input("Contrase?a", type="password")
+        pwd_erp = st.text_input("Contrase?a ERP (opcional si es diferente):", type="password")
         
         submit = st.form_submit_button("CONTINUAR", use_container_width=True)
         
         if submit:
             if not usr_input or not pwd:
-                st.warning("Por favor ingrese usuario y contrase√±a.")
+                st.warning("Por favor ingrese usuario y contrase?a.")
                 return
 
             usuario_limpio = usr_input.strip().lower()
 
-            if opcion == "Iniciar Sesi√≥n":
+            if opcion == "Iniciar Sesi®Æn":
                 with st.spinner("Verificando usuario..."):
                     try:
-                        res = supabase.rpc(
-                            "verificar_usuario_app",
-                            {"p_username": usuario_limpio, "p_password": pwd},
-                        ).execute()
-                        if res.data is True:
-                            st.session_state.autenticado = True
-                            st.session_state.usuario = usr_input.strip()
-                            st.session_state.password = pwd_erp if pwd_erp else pwd
-                            st.rerun()
-                        else:
-                            st.error("‚ùå Usuario o contrase√±a incorrectos.")
+                        # Consulta directa a Supabase Auth o Tabla
+                        email_interno = f"{usuario_limpio}@chesserp.com"
+                        res = supabase.auth.sign_in_with_password({
+                            "email": email_interno,
+                            "password": pwd
+                        })
+                        st.session_state.autenticado = True
+                        st.session_state.usuario = usr_input.strip()
+                        st.session_state.password = pwd_erp if pwd_erp else pwd
+                        st.rerun()
                     except Exception as e:
-                        st.error(f"‚ùå Error al verificar usuario: {e}")
+                        st.error("? Usuario o contrase?a incorrectos.")
 
             elif opcion == "Registrar Usuario":
                 with st.spinner("Registrando nuevo usuario..."):
                     try:
-                        res = supabase.rpc(
-                            "registrar_usuario_app",
-                            {"p_username": usuario_limpio, "p_password": pwd},
-                        ).execute()
-                        if res.data is True:
-                            st.success(f"‚úÖ Usuario '{usr_input.strip()}' registrado exitosamente. Ahora puede iniciar sesi√≥n.")
-                        else:
-                            st.error("‚ùå Ese usuario ya existe.")
+                        email_interno = f"{usuario_limpio}@chesserp.com"
+                        supabase.auth.sign_up({
+                            "email": email_interno,
+                            "password": pwd
+                        })
+                        st.success(f"? Usuario '{usr_input.strip()}' registrado exitosamente. Ahora puede iniciar sesi®Æn.")
                     except Exception as e:
-                        st.error(f"‚ùå Error al registrar: {e}")
-                        
+                        st.error(f"? Error al registrar: {e}")
+
 # --- PANTALLA 2: PRINCIPAL ---
 def vista_principal():
-    st.sidebar.title(f"üë§ {st.session_state.usuario}")
-    if st.sidebar.button("Cerrar Sesi√≥n", use_container_width=True):
+    st.sidebar.title(f"?? {st.session_state.usuario}")
+    if st.sidebar.button("Cerrar Sesi®Æn", use_container_width=True):
         st.session_state.autenticado = False
         st.rerun()
 
-    st.title("üîì Gestor de Autorizaci√≥n CHESS ERP")
+    st.title("?? Gestor de Autorizaci®Æn CHESS ERP")
     
     txt_mensaje = st.text_area(
         "Pegue el mensaje de solicitud:",
@@ -389,20 +380,18 @@ def vista_principal():
         height=120
     )
 
-    if st.button("üîç PROCESAR MENSAJE", use_container_width=True):
+    if st.button("?? PROCESAR MENSAJE", use_container_width=True):
         extraer_y_actualizar(txt_mensaje)
         st.session_state.ultimo_mensaje_procesado = txt_mensaje
         st.rerun()
 
-    # Solo auto-parsea la primera vez que aparece un mensaje nuevo (nunca procesado),
-    # para no pisar campos que el usuario ya haya editado a mano.
     if st.session_state.ultimo_mensaje_procesado != txt_mensaje and st.session_state.ultimo_mensaje_procesado is None:
         extraer_y_actualizar(txt_mensaje)
         st.session_state.ultimo_mensaje_procesado = txt_mensaje
 
     st.markdown("---")
 
-    st.markdown("### üìã Datos Detectados (Editables)")
+    st.markdown("### ?? Datos Detectados (Editables)")
     st.caption("Verifique o edite los campos manualmente antes de autorizar:")
 
     col1, col2 = st.columns(2)
@@ -420,11 +409,11 @@ def vista_principal():
 
     st.markdown("---")
 
-    if st.button("üîì PERMITIR ACCESO EN CHESS ERP", type="primary", use_container_width=True):
+    if st.button("?? PERMITIR ACCESO EN CHESS ERP", type="primary", use_container_width=True):
         if not dominio_final or dominio_final == "No detectado":
-            st.error("Por favor ingrese un Servidor / Ruta URL v√°lido.")
+            st.error("Por favor ingrese un Servidor / Ruta URL v®¢lido.")
         else:
-            with st.spinner(f"Procesando autorizaci√≥n para {dominio_final}..."):
+            with st.spinner(f"Procesando autorizaci®Æn para {dominio_final}..."):
                 exito, msg, advertencia = automatizar_web(
                     dominio_final,
                     st.session_state.usuario,
@@ -434,17 +423,17 @@ def vista_principal():
                     txt_mensaje
                 )
                 if exito and not advertencia:
-                    st.success(f"‚úÖ {msg}")
+                    st.success(f"? {msg}")
                 elif exito and advertencia:
-                    st.warning(f"‚ö†Ô∏è {msg}")
+                    st.warning(f"?? {msg}")
                 else:
-                    st.error(f"‚ùå Error: {msg}")
+                    st.error(f"? Error: {msg}")
 
     if st.session_state.log_ejecucion:
-        st.markdown("#### üìú Estado de Ejecuci√≥n")
+        st.markdown("#### ?? Estado de Ejecuci®Æn")
         st.code("\n".join(st.session_state.log_ejecucion), language="bash")
 
-    with st.expander("üìú Ver Historial de Autorizaciones"):
+    with st.expander("?? Ver Historial de Autorizaciones"):
         try:
             res = (
                 supabase.table("historial_autorizaciones")
@@ -462,11 +451,11 @@ def vista_principal():
                         f"| OPERADOR: {r.get('operador','')} | MOTIVO: {r.get('motivo','')}"
                     )
             else:
-                st.info("A√∫n no hay registros en el historial.")
+                st.info("A®≤n no hay registros en el historial.")
         except Exception as e:
-            st.warning(f"‚ö†Ô∏è No se pudo cargar el historial desde Supabase: {e}")
+            st.warning(f"?? No se pudo cargar el historial desde Supabase: {e}")
 
-# --- EJECUCI√ìN PRINCIPAL ---
+# --- EJECUCI®ÆN PRINCIPAL ---
 if not st.session_state.autenticado:
     vista_login()
 else:
