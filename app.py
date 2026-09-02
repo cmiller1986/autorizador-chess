@@ -98,6 +98,7 @@ def extraer_y_actualizar(texto_mensaje):
     lineas = [l.strip() for l in texto_mensaje.split("\n") if l.strip()]
     primera_linea = lineas[0] if lineas else ""
 
+    # 1. Extracción del Operador
     if primera_linea.lower().startswith("url:") or primera_linea.lower().startswith("http"):
         operador = usuario_actual or "No detectado"
     else:
@@ -107,31 +108,39 @@ def extraer_y_actualizar(texto_mensaje):
             raw_op = re.split(r"\d+\s*min|Ahora|Ayer|\d{1,2}:\d{2}", primera_linea, flags=re.IGNORECASE)[0].strip()
         operador = raw_op if raw_op else "No detectado"
 
-    urls_encontradas = re.findall(r"(?:https?://)?[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?::\d+)?(?:/[^\s\n]*)?", texto_mensaje)
-    if not urls_encontradas:
-        urls_encontradas = re.findall(r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?::\d+)?", texto_mensaje)
+    # 2. Extracción precisa de URL con Subdominio + Ruta (/ARxxx) + Puerto opcional
+    pattern_url = r"(?:https?://)?(?:[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|\d{1,3}(?:\.\d{1,3}){3})(?::\d+)?(?:/[^\s\n]*)?"
+    urls_encontradas = re.findall(pattern_url, texto_mensaje)
 
     if urls_encontradas:
         dominio_ruta = re.sub(r"^url:\s*", "", urls_encontradas[0], flags=re.IGNORECASE).strip().rstrip("/")
     else:
         dominio_ruta = "No detectado"
 
+    # 3. Extracción del Ticket
     match_ticket = re.search(r"(#\d+)", texto_mensaje)
     ticket = match_ticket.group(1) if match_ticket else ""
 
+    # 4. Extracción limpia del Motivo (Omitiendo la línea de la URL para que no la inserte)
     match_motivo = re.search(r"[Mm]otivo:\s*(.*)", texto_mensaje, re.IGNORECASE)
     if match_motivo:
         motivo_raw = match_motivo.group(1).strip()
     else:
-        resto = [
-            l for l in lineas 
-            if not l.lower().startswith("url:") 
-            and not "http://" in l.lower() 
-            and not "https://" in l.lower() 
-            and not re.search(r"^#\d+$", l) 
-            and l != primera_linea
-        ]
+        resto = []
+        for l in lineas:
+            linea_lower = l.lower()
+            if (linea_lower.startswith("url:") or 
+                "http://" in linea_lower or 
+                "https://" in linea_lower or 
+                "chesserp" in linea_lower or
+                re.search(r"\.[a-zA-Z]{2,}", l) or
+                re.search(r"^#\d+$", l) or 
+                l == primera_linea):
+                continue
+            resto.append(l)
         motivo_raw = " ".join(resto) if resto else ""
+
+    motivo_raw = re.sub(r"(?:https?://)?\S+\.\S+", "", motivo_raw).strip()
 
     st.session_state["in_dom"] = dominio_ruta
     st.session_state["in_op"] = operador
@@ -193,7 +202,12 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
         driver.get(url_base)
         time.sleep(2)
 
-        url_admin = (url_base.rstrip("/").split("#")[0] + "/#/admin") if "#" in url_base else f"{url_base.rstrip('/')}/#/admin"
+        # Construcción limpia de la URL /#/admin preservando subrutas
+        if "#" in url_base:
+            url_admin = url_base.split("#")[0].rstrip("/") + "/#/admin"
+        else:
+            url_admin = f"{url_base.rstrip('/')}/#/admin"
+
         log_msg(f"Navegando a la pantalla de admin: {url_admin}", placeholder_log, "INFO")
         driver.get(url_admin)
         time.sleep(2)
@@ -208,7 +222,30 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
             script = """
                 var selector = arguments[0];
                 var val = arguments[1];
-                var el = document.getElementById(selector) || document.querySelector('[formcontrolname="' + selector + '"]');
+                
+                // 1. Búsqueda directa por ID, formcontrolname o name
+                var el = document.getElementById(selector) || 
+                         document.querySelector('[formcontrolname="' + selector + '"]') ||
+                         document.querySelector('[name="' + selector + '"]');
+                
+                // 2. Escáner de respaldo por contexto y posición en el DOM
+                if (!el) {
+                    var inputs = Array.from(document.querySelectorAll('input:not([type="hidden"]):not([type="checkbox"]):not([type="button"]), textarea'));
+                    
+                    if (selector.toLowerCase().includes('usuario')) {
+                        el = inputs[0];
+                    } else if (selector.toLowerCase().includes('contrasenia') || selector.toLowerCase().includes('password')) {
+                        el = document.querySelector('input[type="password"]') || inputs[1];
+                    } else if (selector.toLowerCase().includes('operador')) {
+                        el = inputs.find(i => (i.placeholder || '').toLowerCase().includes('operador') || (i.id || '').toLowerCase().includes('operador')) || inputs[2];
+                    } else if (selector.toLowerCase().includes('detalle') || selector.toLowerCase().includes('motivo')) {
+                        // El motivo siempre es el último campo visible del formulario
+                        el = document.querySelector('textarea') || 
+                             inputs.find(i => (i.placeholder || '').toLowerCase().includes('motivo') || (i.id || '').toLowerCase().includes('motivo')) || 
+                             inputs[inputs.length - 1];
+                    }
+                }
+
                 if (el) {
                     el.removeAttribute('disabled');
                     el.removeAttribute('readonly');
@@ -323,6 +360,7 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
             driver.quit()
 
 # --- PANTALLA 1: LOGIN Y REGISTRO ---
+# --- PANTALLA 1: LOGIN Y REGISTRO ---
 def vista_login():
     st.markdown("<h2 style='text-align: center;'>Acceso CHESS ERP</h2>", unsafe_allow_html=True)
     st.markdown("---")
@@ -332,7 +370,11 @@ def vista_login():
     with st.form("auth_form"):
         usr_input = st.text_input("Usuario ERP")
         pwd = st.text_input("Contraseña ERP", type="password")
-        email_input = st.text_input("Correo electrónico")
+        
+        # Muestra el correo electrónico ÚNICAMENTE cuando la opción elegida es Registrar Usuario
+        email_input = None
+        if opcion == "Registrar Usuario":
+            email_input = st.text_input("Correo electrónico")
         
         submit = st.form_submit_button("CONTINUAR", use_container_width=True)
         
@@ -379,7 +421,7 @@ def vista_login():
                         st.success(f"Usuario '{usuario_limpio}' registrado exitosamente. Ya puede iniciar sesión.")
                     except Exception as e:
                         st.error(f"Error al registrar en Supabase (usuario o email ya existente): {e}")
-
+                        
 # --- PANTALLA 2: PRINCIPAL ---
 def vista_principal():
     st.sidebar.title("Menú")
