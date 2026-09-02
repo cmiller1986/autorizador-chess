@@ -15,7 +15,7 @@ from selenium.common.exceptions import StaleElementReferenceException
 # --- CONFIGURACION DE PAGINA ---
 st.set_page_config(
     page_title="Gestor de Autorizacion CHESS ERP",
-    page_icon="??",
+    page_icon="key",
     layout="centered"
 )
 
@@ -309,29 +309,28 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
 
 # --- PANTALLA 1: LOGIN Y REGISTRO ---
 def vista_login():
-    st.markdown("<h2 style='text-align: center;'>?? Acceso CHESS ERP</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center;'>Acceso CHESS ERP</h2>", unsafe_allow_html=True)
     st.markdown("---")
     
-    opcion = st.radio("Acci車n:", ["Iniciar Sesi車n", "Registrar Usuario"], horizontal=True)
+    opcion = st.radio("Accion:", ["Iniciar Sesion", "Registrar Usuario"], horizontal=True)
 
     with st.form("auth_form"):
         usr_input = st.text_input("Usuario ERP")
-        pwd = st.text_input("Contrase?a ERP", type="password")
-        email_input = st.text_input("Correo electr車nico")
+        pwd = st.text_input("Contrasena ERP", type="password")
+        email_input = st.text_input("Correo electronico")
         
         submit = st.form_submit_button("CONTINUAR", use_container_width=True)
         
         if submit:
             if not usr_input or not pwd:
-                st.warning("Por favor complete usuario y contrase?a.")
+                st.warning("Por favor complete usuario y contrasena.")
                 return
 
             usuario_limpio = usr_input.strip()
 
-            if opcion == "Iniciar Sesi車n":
+            if opcion == "Iniciar Sesion":
                 with st.spinner("Verificando credenciales en Supabase..."):
                     try:
-                        # Consulta sobre la tabla usuarios_app saneada
                         res = (
                             supabase.table("usuarios_app")
                             .select("*")
@@ -347,9 +346,9 @@ def vista_login():
                             st.session_state.password = registros[0]["password"]
                             st.rerun()
                         else:
-                            st.error("? Usuario, email o contrase?a incorrectos.")
+                            st.error("Usuario, email o contrasena incorrectos.")
                     except Exception as e:
-                        st.error(f"? Error al consultar la base de datos: {e}")
+                        st.error(f"Error al consultar la base de datos: {e}")
 
             elif opcion == "Registrar Usuario":
                 email_final = email_input.strip().lower() if email_input else f"{usuario_limpio.lower()}@chesserp.com"
@@ -362,18 +361,18 @@ def vista_login():
                             "email": email_final
                         }).execute()
 
-                        st.success(f"? Usuario '{usuario_limpio}' registrado exitosamente. Ya puede iniciar sesi車n.")
+                        st.success(f"Usuario '{usuario_limpio}' registrado exitosamente. Ya puede iniciar sesion.")
                     except Exception as e:
-                        st.error(f"? Error al registrar en Supabase (usuario o email ya existente): {e}")
+                        st.error(f"Error al registrar en Supabase (usuario o email ya existente): {e}")
 
 # --- PANTALLA 2: PRINCIPAL ---
 def vista_principal():
-    st.sidebar.title(f"?? {st.session_state.usuario}")
-    if st.sidebar.button("Cerrar Sesi車n", use_container_width=True):
+    st.sidebar.title(f"Usuario: {st.session_state.usuario}")
+    if st.sidebar.button("Cerrar Sesion", use_container_width=True):
         st.session_state.autenticado = False
         st.rerun()
 
-    st.title("?? Gestor de Autorizaci車n CHESS ERP")
+    st.title("Gestor de Autorizacion CHESS ERP")
     
     txt_mensaje = st.text_area(
         "Pegue el mensaje de solicitud:",
@@ -381,7 +380,7 @@ def vista_principal():
         height=120
     )
 
-    if st.button("?? PROCESAR MENSAJE", use_container_width=True):
+    if st.button("PROCESAR MENSAJE", use_container_width=True):
         extraer_y_actualizar(txt_mensaje)
         st.session_state.ultimo_mensaje_procesado = txt_mensaje
         st.rerun()
@@ -392,7 +391,7 @@ def vista_principal():
 
     st.markdown("---")
 
-    st.markdown("### ?? Datos Detectados (Editables)")
+    st.markdown("### Datos Detectados (Editables)")
     st.caption("Verifique o edite los campos manualmente antes de autorizar:")
 
     col1, col2 = st.columns(2)
@@ -410,11 +409,11 @@ def vista_principal():
 
     st.markdown("---")
 
-    if st.button("?? PERMITIR ACCESO EN CHESS ERP", type="primary", use_container_width=True):
+    if st.button("PERMITIR ACCESO EN CHESS ERP", type="primary", use_container_width=True):
         if not dominio_final or dominio_final == "No detectado":
-            st.error("Por favor ingrese un Servidor / Ruta URL v芍lido.")
+            st.error("Por favor ingrese un Servidor / Ruta URL valido.")
         else:
-            with st.spinner(f"Procesando autorizaci車n para {dominio_final}..."):
+            with st.spinner(f"Procesando autorizacion para {dominio_final}..."):
                 exito, msg, advertencia = automatizar_web(
                     dominio_final,
                     st.session_state.usuario,
@@ -424,17 +423,17 @@ def vista_principal():
                     txt_mensaje
                 )
                 if exito and not advertencia:
-                    st.success(f"? {msg}")
+                    st.success(f"{msg}")
                 elif exito and advertencia:
-                    st.warning(f"?? {msg}")
+                    st.warning(f"{msg}")
                 else:
-                    st.error(f"? Error: {msg}")
+                    st.error(f"Error: {msg}")
 
     if st.session_state.log_ejecucion:
-        st.markdown("#### ?? Estado de Ejecuci車n")
+        st.markdown("#### Estado de Ejecucion")
         st.code("\n".join(st.session_state.log_ejecucion), language="bash")
 
-    with st.expander("?? Ver Historial de Autorizaciones"):
+    with st.expander("Ver Historial de Autorizaciones"):
         try:
             res = (
                 supabase.table("historial_autorizaciones")
@@ -452,9 +451,9 @@ def vista_principal():
                         f"| OPERADOR: {r.get('operador','')} | MOTIVO: {r.get('motivo','')}"
                     )
             else:
-                st.info("A迆n no hay registros en el historial.")
+                st.info("Aun no hay registros en el historial.")
         except Exception as e:
-            st.warning(f"?? No se pudo cargar el historial desde Supabase: {e}")
+            st.warning(f"No se pudo cargar el historial desde Supabase: {e}")
 
 # --- EJECUCION PRINCIPAL ---
 if not st.session_state.autenticado:
