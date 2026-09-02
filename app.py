@@ -10,6 +10,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import StaleElementReferenceException
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -118,30 +119,54 @@ def extraer_y_actualizar(texto_mensaje):
     st.session_state["in_tick"] = ticket
     st.session_state["in_mot"] = motivo_raw
 
-def escribir_elemento_humano(driver, elemento, texto):
-    try:
-        driver.execute_script("arguments[0].click();", elemento)
-        time.sleep(0.1)
-        elemento.send_keys(Keys.CONTROL + "a")
-        elemento.send_keys(Keys.BACKSPACE)
-        time.sleep(0.1)
-        elemento.send_keys(texto)
-        driver.execute_script(
-            "arguments[0].dispatchEvent(new Event('input', { bubbles: true }));"
-            "arguments[0].dispatchEvent(new Event('change', { bubbles: true }));",
-            elemento,
-        )
-        time.sleep(0.1)
-    except Exception:
+def escribir_elemento_humano(driver, obtener_elemento, texto, max_intentos=3):
+    """
+    obtener_elemento: función sin argumentos que devuelve el WebElement actual.
+    Se vuelve a invocar en cada reintento (en vez de reusar la misma referencia)
+    para tolerar que la SPA re-renderice el DOM entre un campo y otro.
+    Devuelve True si logró escribir, False si no pudo tras varios intentos.
+    """
+    ultimo_error = "elemento no encontrado"
+    for intento in range(max_intentos):
         try:
+            elemento = obtener_elemento()
+            if elemento is None:
+                ultimo_error = "elemento no encontrado en el DOM"
+                time.sleep(0.3)
+                continue
+            driver.execute_script("arguments[0].click();", elemento)
+            time.sleep(0.1)
+            elemento.send_keys(Keys.CONTROL + "a")
+            elemento.send_keys(Keys.BACKSPACE)
+            time.sleep(0.1)
+            elemento.send_keys(texto)
             driver.execute_script(
-                "arguments[0].value = arguments[1];"
                 "arguments[0].dispatchEvent(new Event('input', { bubbles: true }));"
                 "arguments[0].dispatchEvent(new Event('change', { bubbles: true }));",
-                elemento, texto
+                elemento,
             )
+            time.sleep(0.1)
+            return True
+        except StaleElementReferenceException:
+            ultimo_error = "el elemento se volvió obsoleto (stale) tras un re-render de la página"
+            time.sleep(0.3)
+            continue
         except Exception as e:
-            log_msg(f"⚠️ Error al escribir en campo: {str(e).split('\n')[0]}")
+            try:
+                elemento = obtener_elemento()
+                driver.execute_script(
+                    "arguments[0].value = arguments[1];"
+                    "arguments[0].dispatchEvent(new Event('input', { bubbles: true }));"
+                    "arguments[0].dispatchEvent(new Event('change', { bubbles: true }));",
+                    elemento, texto
+                )
+                return True
+            except Exception as e2:
+                ultimo_error = str(e2).split("\n")[0]
+                time.sleep(0.3)
+                continue
+    log_msg(f"⚠️ No se pudo escribir en el campo tras {max_intentos} intentos: {ultimo_error}")
+    return False
 
 def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, texto_mensaje):
     st.session_state.log_ejecucion = []
@@ -198,28 +223,56 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
         wait.until(EC.presence_of_element_located((By.XPATH, "//input")))
         time.sleep(1)
 
-        inputs_texto = driver.find_elements(By.XPATH, "//input[not(@type='checkbox') and not(@type='radio') and not(@type='hidden') and not(@type='button')]")
-        input_pass = driver.find_elements(By.XPATH, "//input[@type='password']")
-        inputs_visibles = [i for i in inputs_texto if i.is_displayed()]
+        xpath_inputs_texto = "//input[not(@type='checkbox') and not(@type='radio') and not(@type='hidden') and not(@type='button')]"
+        xpath_input_pass = "//input[@type='password']"
+
+        def obtener_inputs_visibles():
+            return [i for i in driver.find_elements(By.XPATH, xpath_inputs_texto) if i.is_displayed()]
+
+        def obtener_input_pass():
+            elems = driver.find_elements(By.XPATH, xpath_input_pass)
+            return elems[0] if elems else None
+
+        def obtener_textarea():
+            elems = driver.find_elements(By.TAG_NAME, "textarea")
+            return elems[0] if elems else None
+
+        inputs_visibles_iniciales = obtener_inputs_visibles()
+        input_pass_presente = obtener_input_pass() is not None
+        campos_fallidos = []
 
         log_msg(f"Ingresando Usuario: '{usuario}'...")
-        if inputs_visibles:
-            escribir_elemento_humano(driver, inputs_visibles[0], usuario)
+        if inputs_visibles_iniciales:
+            ok = escribir_elemento_humano(driver, lambda: obtener_inputs_visibles()[0] if obtener_inputs_visibles() else None, usuario)
+            if not ok:
+                campos_fallidos.append("Usuario")
 
         log_msg("Ingresando Contraseña...")
-        if input_pass:
-            escribir_elemento_humano(driver, input_pass[0], password)
+        if input_pass_presente:
+            ok = escribir_elemento_humano(driver, obtener_input_pass, password)
+            if not ok:
+                campos_fallidos.append("Contraseña")
 
         log_msg(f"Asignando Operador Autorizado: '{operador}'...")
-        if len(inputs_visibles) >= 3:
-            escribir_elemento_humano(driver, inputs_visibles[2], operador)
-        elif len(inputs_visibles) >= 2 and not input_pass:
-            escribir_elemento_humano(driver, inputs_visibles[1], operador)
+        if len(inputs_visibles_iniciales) >= 3:
+            idx_operador = 2
+        elif len(inputs_visibles_iniciales) >= 2 and not input_pass_presente:
+            idx_operador = 1
+        else:
+            idx_operador = None
+        if idx_operador is not None:
+            def obtener_input_operador(idx=idx_operador):
+                visibles = obtener_inputs_visibles()
+                return visibles[idx] if len(visibles) > idx else None
+            ok = escribir_elemento_humano(driver, obtener_input_operador, operador)
+            if not ok:
+                campos_fallidos.append("Operador Autorizado")
 
-        textareas = driver.find_elements(By.TAG_NAME, "textarea")
         log_msg(f"Asignando Motivo: '{motivo_final}'...")
-        if textareas:
-            escribir_elemento_humano(driver, textareas[0], motivo_final)
+        if obtener_textarea() is not None:
+            ok = escribir_elemento_humano(driver, obtener_textarea, motivo_final)
+            if not ok:
+                campos_fallidos.append("Motivo")
 
         log_msg("Enviando autorización al sistema...")
         time.sleep(0.5)
@@ -236,16 +289,21 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
 
         if mensajes_error:
             log_msg(f"❌ ERROR DETECTADO: {mensajes_error[0]}")
-            return False, mensajes_error[0]
+            return False, mensajes_error[0], False
+        elif campos_fallidos:
+            msg = f"El ERP aceptó la autorización, pero estos campos no se pudieron escribir con confianza: {', '.join(campos_fallidos)}. Verificá manualmente en el ERP."
+            log_msg(f"⚠️ ACCESO ENVIADO CON ADVERTENCIA: {msg}")
+            registrar_en_historial(usuario, dominio_ruta, operador, motivo_final)
+            return True, msg, True
         else:
             log_msg("✅ ACCESO AUTORIZADO CORRECTAMENTE.")
             registrar_en_historial(usuario, dominio_ruta, operador, motivo_final)
-            return True, "Acceso concedido correctamente"
+            return True, "Acceso concedido correctamente", False
 
     except Exception as e:
         err_msg = str(e).split("\n")[0]
         log_msg(f"❌ ERROR: {err_msg}")
-        return False, err_msg
+        return False, err_msg, False
     finally:
         if driver:
             driver.quit()
@@ -353,7 +411,7 @@ def vista_principal():
             st.error("Por favor ingrese un Servidor / Ruta URL válido.")
         else:
             with st.spinner(f"Procesando autorización para {dominio_final}..."):
-                exito, msg = automatizar_web(
+                exito, msg, advertencia = automatizar_web(
                     dominio_final,
                     st.session_state.usuario,
                     st.session_state.password,
@@ -361,8 +419,10 @@ def vista_principal():
                     motivo_ejecucion,
                     txt_mensaje
                 )
-                if exito:
+                if exito and not advertencia:
                     st.success(f"✅ {msg}")
+                elif exito and advertencia:
+                    st.warning(f"⚠️ {msg}")
                 else:
                     st.error(f"❌ Error: {msg}")
 
