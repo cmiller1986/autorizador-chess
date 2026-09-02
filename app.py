@@ -280,10 +280,24 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
         xpath_btn = "//button[contains(translate(text(), 'PERMITIR ACCESO', 'permitir acceso'), 'permitir acceso')]"
         elementos = driver.find_elements(By.XPATH, xpath_btn)
         btn_target = [e for e in elementos if e.is_displayed()]
-        if btn_target:
-            driver.execute_script("arguments[0].click();", btn_target[0])
+
+        if not btn_target:
+            log_msg("❌ No se encontró (o no está visible) el botón 'Permitir Acceso'. No se envió nada al ERP.")
+            try:
+                driver.save_screenshot("/tmp/debug_sin_boton.png")
+                log_msg("📸 Screenshot guardado en /tmp/debug_sin_boton.png para diagnóstico.")
+            except Exception:
+                pass
+            return False, "No se encontró el botón 'Permitir Acceso' en la página; no se realizó ninguna acción.", False
+
+        driver.execute_script("arguments[0].click();", btn_target[0])
+        log_msg("Botón 'Permitir Acceso' clickeado. Esperando respuesta del ERP...")
 
         time.sleep(2)
+        try:
+            driver.save_screenshot("/tmp/debug_post_click.png")
+        except Exception:
+            pass
         errores_alert = driver.find_elements(By.XPATH, "//*[contains(text(), 'Usuario o contraseña incorrecta') or contains(text(), 'Contraseña incorrecta') or contains(text(), 'Usuario no encontrado') or contains(text(), 'Credenciales inválidas')]")
         mensajes_error = [e.text for e in errores_alert if e.is_displayed() and e.text.strip()]
 
