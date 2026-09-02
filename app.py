@@ -269,32 +269,36 @@ def vista_login():
                 st.warning("Por favor ingrese usuario y contraseña.")
                 return
 
-            # Mapeo interno invisible: convierte el usuario en un identificador compatible con Supabase
             usuario_limpio = usr_input.strip().lower()
-            email_interno = f"{usuario_limpio}@chesserp.com"
 
             if opcion == "Iniciar Sesión":
                 with st.spinner("Verificando usuario..."):
                     try:
-                        res = supabase.auth.sign_in_with_password({
-                            "email": email_interno,
-                            "password": pwd
-                        })
-                        st.session_state.autenticado = True
-                        st.session_state.usuario = usr_input.strip()
-                        st.session_state.password = pwd_erp if pwd_erp else pwd
-                        st.rerun()
+                        res = supabase.rpc(
+                            "verificar_usuario_app",
+                            {"p_username": usuario_limpio, "p_password": pwd},
+                        ).execute()
+                        if res.data is True:
+                            st.session_state.autenticado = True
+                            st.session_state.usuario = usr_input.strip()
+                            st.session_state.password = pwd_erp if pwd_erp else pwd
+                            st.rerun()
+                        else:
+                            st.error("❌ Usuario o contraseña incorrectos.")
                     except Exception as e:
-                        st.error("❌ Usuario o contraseña incorrectos.")
+                        st.error(f"❌ Error al verificar usuario: {e}")
 
             elif opcion == "Registrar Usuario":
                 with st.spinner("Registrando nuevo usuario..."):
                     try:
-                        supabase.auth.sign_up({
-                            "email": email_interno,
-                            "password": pwd
-                        })
-                        st.success(f"✅ Usuario '{usr_input.strip()}' registrado exitosamente. Ahora puede iniciar sesión.")
+                        res = supabase.rpc(
+                            "registrar_usuario_app",
+                            {"p_username": usuario_limpio, "p_password": pwd},
+                        ).execute()
+                        if res.data is True:
+                            st.success(f"✅ Usuario '{usr_input.strip()}' registrado exitosamente. Ahora puede iniciar sesión.")
+                        else:
+                            st.error("❌ Ese usuario ya existe.")
                     except Exception as e:
                         st.error(f"❌ Error al registrar: {e}")
                         
