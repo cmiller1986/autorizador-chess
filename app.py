@@ -1,7 +1,6 @@
 import streamlit as st
 import re
 import time
-import os
 import sys
 from datetime import datetime
 from supabase import create_client, Client
@@ -11,8 +10,6 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-
-ARCHIVO_HISTORIAL = "historial_autorizaciones.txt"
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
@@ -58,6 +55,8 @@ if "in_tick" not in st.session_state:
     st.session_state.in_tick = ""
 if "in_mot" not in st.session_state:
     st.session_state.in_mot = ""
+if "ultimo_mensaje_procesado" not in st.session_state:
+    st.session_state.ultimo_mensaje_procesado = None
 
 # --- FUNCIONES AUXILIARES ---
 def log_msg(msg):
@@ -65,12 +64,14 @@ def log_msg(msg):
 
 def registrar_en_historial(usuario, dominio_ruta, operador, motivo_final):
     try:
-        fecha_hora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        linea = f"[{fecha_hora}] USUARIO: {usuario} | RUTA: {dominio_ruta} | OPERADOR: {operador} | MOTIVO: {motivo_final}\n"
-        with open(ARCHIVO_HISTORIAL, "a", encoding="utf-8") as f:
-            f.write(linea)
+        supabase.table("historial_autorizaciones").insert({
+            "usuario": usuario,
+            "dominio_ruta": dominio_ruta,
+            "operador": operador,
+            "motivo": motivo_final,
+        }).execute()
     except Exception as e:
-        log_msg(f"⚠️ Error al guardar historial: {e}")
+        log_msg(f"⚠️ Error al guardar historial en Supabase: {e}")
 
 def extraer_y_actualizar(texto_mensaje):
     usuario_actual = st.session_state.usuario
@@ -314,10 +315,14 @@ def vista_principal():
 
     if st.button("🔍 PROCESAR MENSAJE", use_container_width=True):
         extraer_y_actualizar(txt_mensaje)
+        st.session_state.ultimo_mensaje_procesado = txt_mensaje
         st.rerun()
 
-    if st.session_state.in_dom == "No detectado":
+    # Solo auto-parsea la primera vez que aparece un mensaje nuevo (nunca procesado),
+    # para no pisar campos que el usuario ya haya editado a mano.
+    if st.session_state.ultimo_mensaje_procesado != txt_mensaje and st.session_state.ultimo_mensaje_procesado is None:
         extraer_y_actualizar(txt_mensaje)
+        st.session_state.ultimo_mensaje_procesado = txt_mensaje
 
     st.markdown("---")
 
@@ -362,11 +367,26 @@ def vista_principal():
         st.code("\n".join(st.session_state.log_ejecucion), language="bash")
 
     with st.expander("📜 Ver Historial de Autorizaciones"):
-        if os.path.exists(ARCHIVO_HISTORIAL):
-            with open(ARCHIVO_HISTORIAL, "r", encoding="utf-8") as f:
-                st.text(f.read())
-        else:
-            st.info("Aún no hay registros en el historial.")
+        try:
+            res = (
+                supabase.table("historial_autorizaciones")
+                .select("*")
+                .order("created_at", desc=True)
+                .limit(100)
+                .execute()
+            )
+            registros = res.data or []
+            if registros:
+                for r in registros:
+                    fecha = r.get("created_at", "")
+                    st.text(
+                        f"[{fecha}] USUARIO: {r.get('usuario','')} | RUTA: {r.get('dominio_ruta','')} "
+                        f"| OPERADOR: {r.get('operador','')} | MOTIVO: {r.get('motivo','')}"
+                    )
+            else:
+                st.info("Aún no hay registros en el historial.")
+        except Exception as e:
+            st.warning(f"⚠️ No se pudo cargar el historial desde Supabase: {e}")
 
 # --- EJECUCIÓN PRINCIPAL ---
 if not st.session_state.autenticado:
