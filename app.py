@@ -195,12 +195,10 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
         wait = WebDriverWait(driver, 20)
         log_msg("Navegador listo.", placeholder_log, "OK")
 
-        # Cargar la raíz e investigar redirección dinámica del router (/ARxxx)
         log_msg("Inicializando SPA de Chess ERP...", placeholder_log, "INFO")
         driver.get(url_base)
-        time.sleep(3)  # Tiempo de espera para que resuelva redirecciones de servidor/router
+        time.sleep(3)
 
-        # Capturar la URL real resuelta por el navegador
         url_actual = driver.current_url.split("#")[0].rstrip("/")
         url_admin = f"{url_actual}/#/admin"
 
@@ -273,14 +271,14 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
         log_msg(f"Asignando Operador Autorizado: '{operador}'...", placeholder_log, "INFO")
         ok_op = inyectar_campo_js("operadorAutorizado", operador, "Operador Autorizado")
         if not ok_op:
-            return False, "No se pudo escribir el Operador Autorizado en el formulario.", False
-        log_msg("Operador Autorizado asignado.", placeholder_log, "OK")
+            return False, "No se pudo escribir el Operador Autorizado en el formulario.", False, None
+        log_msg(f"Operador Autorizado '{operador}' asignado correctamente.", placeholder_log, "OK")
         time.sleep(0.4)
 
         log_msg(f"Asignando Motivo: '{motivo_final}'...", placeholder_log, "INFO")
         ok_mot = inyectar_campo_js("detalle", motivo_final, "Motivo")
         if not ok_mot:
-            return False, "No se pudo escribir el Motivo en el formulario.", False
+            return False, "No se pudo escribir el Motivo en el formulario.", False, None
         log_msg("Motivo asignado.", placeholder_log, "OK")
         time.sleep(1)
 
@@ -298,7 +296,7 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
 
         if not btn_enviado:
             log_msg("No se encontró el botón 'PERMITIR ACCESO'.", placeholder_log, "ERROR")
-            return False, "No se encontró el botón 'PERMITIR ACCESO'.", False
+            return False, "No se encontró el botón 'PERMITIR ACCESO'.", False, None
         
         log_msg("Solicitud enviada al servidor ERP.", placeholder_log, "OK")
 
@@ -339,7 +337,10 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
         time.sleep(4)
 
         log_msg("ACCESO AUTORIZADO Y SESIÓN INICIADA CORRECTAMENTE EN CHESS ERP.", placeholder_log, "OK")
+        
+        # REGISTRO EXPLÍCITO EN SUPABASE CON EL OPERADOR DEL INPUT
         registrar_en_historial(usuario, dominio_ruta, operador, motivo_final)
+        
         return True, "Acceso e inicio de sesión completados correctamente", False, url_actual
 
     except Exception as e:
@@ -359,7 +360,6 @@ def vista_login():
     
     opcion = st.radio("Acción:", ["Iniciar Sesion", "Registrar Usuario"], horizontal=True)
 
-    # Inyección de JS nativa que recupera y auto-completa las credenciales desde localStorage
     st.markdown("""
         <script>
             (function() {
@@ -421,7 +421,6 @@ def vista_login():
                             st.session_state.usuario = registros[0]["usuario"]
                             st.session_state.password = registros[0]["password"]
                             
-                            # Script JS que se ejecuta al autenticar con éxito para guardar/borrar en localStorage
                             if recordar_credenciales:
                                 js_save = f"""
                                     <script>
