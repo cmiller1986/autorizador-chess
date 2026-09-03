@@ -41,7 +41,7 @@ def init_supabase() -> Client:
 
 supabase = init_supabase()
 
-# --- INICIALIZACIÓN DE COOKIE MANAGER (Sin caché para evitar CachedWidgetWarning) ---
+# --- INICIALIZACIÓN DE COOKIE MANAGER ---
 def get_cookie_manager():
     return stx.CookieManager()
 
@@ -459,11 +459,17 @@ def vista_login():
 
                             if recordar_credenciales:
                                 exp_date = datetime.now() + timedelta(days=30)
-                                cookie_manager.set("chess_session_usr", usuario_limpio, key="set_usr", expires_at=exp_date)
-                                cookie_manager.set("chess_session_pwd", pwd, key="set_pwd", expires_at=exp_date)
+                                try:
+                                    cookie_manager.set("chess_session_usr", usuario_limpio, key="set_usr", expires_at=exp_date)
+                                    cookie_manager.set("chess_session_pwd", pwd, key="set_pwd", expires_at=exp_date)
+                                except Exception:
+                                    pass
                             else:
-                                cookie_manager.delete("chess_session_usr", key="del_usr")
-                                cookie_manager.delete("chess_session_pwd", key="del_pwd")
+                                try:
+                                    cookie_manager.delete("chess_session_usr", key="del_usr")
+                                    cookie_manager.delete("chess_session_pwd", key="del_pwd")
+                                except Exception:
+                                    pass
 
                             st.rerun()
                         else:
@@ -514,8 +520,17 @@ def vista_principal():
         st.session_state.autenticado = False
         st.session_state.usuario = ""
         st.session_state.password = ""
-        cookie_manager.delete("chess_session_usr", key="logout_usr")
-        cookie_manager.delete("chess_session_pwd", key="logout_pwd")
+        
+        try:
+            cookie_manager.delete("chess_session_usr", key="logout_usr")
+        except Exception:
+            pass
+            
+        try:
+            cookie_manager.delete("chess_session_pwd", key="logout_pwd")
+        except Exception:
+            pass
+
         borrar_todo()
         st.rerun()
 
