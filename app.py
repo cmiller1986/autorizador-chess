@@ -156,10 +156,6 @@ def borrar_todo():
     st.session_state.url_autorizada_lista = None
 
 def buscar_autorizacion_reciente(dominio_ruta, minutos=10):
-    """
-    Busca en Supabase si existe una autorización previa para el mismo dominio/ruta
-    gestionada dentro de los últimos `minutos` minutos (por cualquier usuario).
-    """
     try:
         res = (
             supabase.table("historial_autorizaciones")
@@ -172,7 +168,6 @@ def buscar_autorizacion_reciente(dominio_ruta, minutos=10):
         tz_local = ZoneInfo("America/Argentina/Buenos_Aires")
         ahora = datetime.now(tz_local)
 
-        # Limpiar dominio ingresado para comparación
         dom_limpio = dominio_ruta.lower().replace("https://", "").replace("http://", "").strip().rstrip("/")
 
         for r in registros:
@@ -391,12 +386,35 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
         if driver:
             driver.quit()
 
-# --- PANTALLA 1: LOGIN Y REGISTRO ---
+# --- PANTALLA 1: LOGIN Y REGISTRO CON PERSISTENCIA DE CREDENCIALES ---
 def vista_login():
     st.markdown("<h2 style='text-align: center;'>Acceso CHESS ERP</h2>", unsafe_allow_html=True)
     st.markdown("---")
     
     opcion = st.radio("Acción:", ["Iniciar Sesion", "Registrar Usuario"], horizontal=True)
+
+    # Inyección JS para auto-completar desde localStorage
+    st.markdown("""
+        <script>
+            setTimeout(function() {
+                const savedUsr = localStorage.getItem('chess_saved_usr');
+                const savedPwd = localStorage.getItem('chess_saved_pwd');
+                if (savedUsr && savedPwd) {
+                    const inputs = window.parent.document.querySelectorAll('input');
+                    inputs.forEach(function(input) {
+                        if (input.type === 'text' && !input.value) {
+                            input.value = savedUsr;
+                            input.dispatchEvent(new Event('input', { bubbles: true }));
+                        }
+                        if (input.type === 'password' && !input.value) {
+                            input.value = savedPwd;
+                            input.dispatchEvent(new Event('input', { bubbles: true }));
+                        }
+                    });
+                }
+            }, 300);
+        </script>
+    """, unsafe_allow_html=True)
 
     with st.form("auth_form"):
         usr_input = st.text_input("Usuario ERP")
@@ -433,6 +451,23 @@ def vista_login():
                             st.session_state.autenticado = True
                             st.session_state.usuario = registros[0]["usuario"]
                             st.session_state.password = registros[0]["password"]
+
+                            # Script de guardado/limpieza de localStorage
+                            if recordar_credenciales:
+                                js_save = f"""
+                                    <script>
+                                        localStorage.setItem('chess_saved_usr', '{usuario_limpio}');
+                                        localStorage.setItem('chess_saved_pwd', '{pwd}');
+                                    </script>
+                                """
+                            else:
+                                js_save = """
+                                    <script>
+                                        localStorage.removeItem('chess_saved_usr');
+                                        localStorage.removeItem('chess_saved_pwd');
+                                    </script>
+                                """
+                            st.markdown(js_save, unsafe_allow_html=True)
                             st.rerun()
                         else:
                             st.error("Usuario, email o contraseña incorrectos.")
@@ -513,10 +548,9 @@ def vista_principal():
 
     st.markdown("---")
 
-# 1. BOTÓN PRINCIPAL DE ACCIÓN
+    # 1. BOTÓN PRINCIPAL DE ACCIÓN Y ENLACE DIRECTO
     btn_permitir = st.button("PERMITIR ACCESO EN CHESS ERP", type="primary", use_container_width=True)
 
-    # BOTÓN DIRECTO DE ENLACE (Aparece cuando hay una URL autorizada lista)
     if st.session_state.url_autorizada_lista:
         st.link_button(
             "🔗 Abrir ERP Habilitado en la Web", 
@@ -524,12 +558,21 @@ def vista_principal():
             use_container_width=True
         )
 
-    # Lógica de verificación e inicio al presionar "PERMITIR ACCESO EN CHESS ERP"
+    st.markdown("---")
+
+    # 2. SECCIÓN DE LOGS DE EJECUCIÓN
+    st.markdown("#### Estado de Ejecución")
+    placeholder_log = st.empty()
+    
+    if st.session_state.log_ejecucion:
+        placeholder_log.code("\n".join(st.session_state.log_ejecucion), language="bash")
+
+    # 3. LÓGICA DE DETECCIÓN Y AUTOMATIZACIÓN
     if btn_permitir:
         if not dominio_final or dominio_final == "No detectado":
             st.error("Por favor ingrese un Servidor / Ruta URL válido.")
         else:
-            # DETECTOR PREVENTIVO DE SESIÓN ACTIVA (< 10 MINUTOS)
+            # Detector preventivo de sesión activa (< 10 min)
             sesion_previa = buscar_autorizacion_reciente(dominio_final, minutos=10)
             
             if sesion_previa["activa"] and not st.session_state.get("forzar_ejecucion", False):
@@ -548,7 +591,6 @@ def vista_principal():
                         st.session_state["forzar_ejecucion"] = True
                         st.rerun()
             else:
-                # Resetear la bandera de forzado y ejecutar Selenium
                 st.session_state["forzar_ejecucion"] = False
                 
                 exito, msg, advertencia, url_resuelta = automatizar_web(
@@ -573,7 +615,9 @@ def vista_principal():
                     st.session_state.url_autorizada_lista = None
                     st.error(f"Error: {msg}")
 
-    # HISTORIAL DE AUTORIZACIONES (Únicamente en la pantalla principal)
+    st.markdown("---")
+
+    # 4. HISTORIAL DE AUTORIZACIONES
     with st.expander("Ver Historial de Autorizaciones"):
         col_hist_title, col_hist_btn = st.columns([3, 1])
         with col_hist_title:
