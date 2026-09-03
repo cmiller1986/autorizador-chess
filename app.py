@@ -559,11 +559,11 @@ def vista_principal():
                 st.session_state.url_autorizada_lista = None
                 st.error(f"Error: {msg}")
 
-    with st.expander(" Ver Historial de Autorizaciones"):
+    with st.expander("Ver Historial de Autorizaciones"):
             try:
                 res = (
                     supabase.table("historial_autorizaciones")
-                    .select("created_at, usuario, dominio_ruta, operador, motivo")
+                    .select("created_at, operador, motivo, usuario, dominio_ruta")
                     .order("created_at", desc=True)
                     .limit(100)
                     .execute()
@@ -571,10 +571,8 @@ def vista_principal():
                 registros = res.data or []
                 
                 if registros:
-                    # Formatear datos para la tabla
                     datos_tabla = []
                     for r in registros:
-                        # Formatear fecha a lectura legible
                         fecha_raw = r.get("created_at", "")
                         try:
                             fecha_dt = datetime.fromisoformat(fecha_raw.replace("Z", "+00:00"))
@@ -584,23 +582,22 @@ def vista_principal():
 
                         datos_tabla.append({
                             "Fecha / Hora": fecha_fmt,
-                            "Usuario ERP": r.get("usuario", "-"),
-                            "Servidor / Ruta": r.get("dominio_ruta", "-"),
                             "Operador Autorizado": r.get("operador", "-"),
-                            "Motivo / Ticket": r.get("motivo", "-")
+                            "Motivo / Ticket": r.get("motivo", "-"),
+                            "Usuario Aprobador ERP": r.get("usuario", "-"),
+                            "Servidor / Ruta": r.get("dominio_ruta", "-")
                         })
 
-                    # Mostrar tabla estilizada de Streamlit
                     st.dataframe(
                         datos_tabla,
                         use_container_width=True,
                         hide_index=True,
                         column_config={
                             "Fecha / Hora": st.column_config.TextColumn("Fecha / Hora", width="medium"),
-                            "Usuario ERP": st.column_config.TextColumn("Usuario ERP", width="small"),
-                            "Servidor / Ruta": st.column_config.TextColumn("Servidor / Ruta", width="medium"),
                             "Operador Autorizado": st.column_config.TextColumn("Operador Autorizado", width="medium"),
                             "Motivo / Ticket": st.column_config.TextColumn("Motivo / Ticket", width="large"),
+                            "Usuario Aprobador ERP": st.column_config.TextColumn("Usuario Aprobador ERP", width="small"),
+                            "Servidor / Ruta": st.column_config.TextColumn("Servidor / Ruta", width="medium"),
                         }
                     )
                 else:
