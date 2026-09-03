@@ -560,16 +560,14 @@ def vista_principal():
                 st.error(f"Error: {msg}")
 
     with st.expander("Ver Historial de Autorizaciones"):
-            # Contenedor superior para el botón de actualización y estado
             col_hist_title, col_hist_btn = st.columns([3, 1])
             with col_hist_title:
-                st.caption("Últimas 100 autorizaciones registradas en la plataforma:")
+                st.caption("Últimas autorizaciones registradas en la plataforma:")
             with col_hist_btn:
                 if st.button("🔄 Actualizar", key="btn_refresh_hist", use_container_width=True):
                     st.rerun()
 
             try:
-                # Consulta a Supabase
                 res = (
                     supabase.table("historial_autorizaciones")
                     .select("created_at, operador, motivo, usuario, dominio_ruta")
@@ -584,12 +582,14 @@ def vista_principal():
                     for r in registros:
                         fecha_raw = r.get("created_at", "")
                         try:
+                            # Convertir la hora UTC de Supabase a la zona horaria local (UTC-3)
                             fecha_dt = datetime.fromisoformat(fecha_raw.replace("Z", "+00:00"))
-                            fecha_fmt = fecha_dt.strftime("%d/%m/%Y %H:%M")
+                            fecha_local = fecha_dt.astimezone() # Toma la zona horaria local del sistema
+                            fecha_fmt = fecha_local.strftime("%d/%m/%Y %H:%M")
                         except Exception:
                             fecha_fmt = fecha_raw[:16]
 
-                        # Separar el Ticket (#123456) del texto del Motivo
+                        # Separar el Ticket (#123456) del resto del texto del Motivo
                         motivo_completo = r.get("motivo", "") or "-"
                         match_ticket = re.search(r"(#\d+)", motivo_completo)
                         
