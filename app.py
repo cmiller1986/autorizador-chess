@@ -1,9 +1,10 @@
 import streamlit as st
 import streamlit.components.v1 as components
+import extra_streamlit_components as stx
 import re
 import time
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from supabase import create_client, Client
 from selenium import webdriver
@@ -40,6 +41,13 @@ def init_supabase() -> Client:
 
 supabase = init_supabase()
 
+# --- INICIALIZACIÓN DE COOKIE MANAGER ---
+@st.cache_resource(experimental_allow_widgets=True)
+def get_cookie_manager():
+    return stx.CookieManager()
+
+cookie_manager = get_cookie_manager()
+
 # --- INICIALIZACIÓN DE ESTADOS ---
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
@@ -65,6 +73,27 @@ if "ultimo_mensaje_procesado" not in st.session_state:
     st.session_state.ultimo_mensaje_procesado = None
 if "url_autorizada_lista" not in st.session_state:
     st.session_state.url_autorizada_lista = None
+
+# --- VERIFICACIÓN DE SESIÓN PERSISTENTE MEDIANTE COOKIES ---
+session_usr = cookie_manager.get(cookie="chess_session_usr")
+session_pwd = cookie_manager.get(cookie="chess_session_pwd")
+
+if session_usr and session_pwd and not st.session_state.autenticado:
+    try:
+        res = (
+            supabase.table("usuarios_app")
+            .select("*")
+            .or_(f"usuario.eq.{session_usr},email.eq.{session_usr.lower()}")
+            .eq("password", session_pwd)
+            .execute()
+        )
+        registros = res.data or []
+        if len(registros) > 0:
+            st.session_state.autenticado = True
+            st.session_state.usuario = registros[0]["usuario"]
+            st.session_state.password = registros[0]["password"]
+    except Exception:
+        pass
 
 # --- FUNCIONES AUXILIARES ---
 def log_msg(msg, placeholder_log=None, estado="INFO"):
@@ -387,7 +416,6 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
             driver.quit()
 
 # --- PANTALLA 1: LOGIN Y REGISTRO ---
-# --- PANTALLA 1: LOGIN Y REGISTRO ---
 def vista_login():
     st.markdown("<h2 style='text-align: center;'>Acceso CHESS ERP</h2>", unsafe_allow_html=True)
     st.markdown("---")
@@ -395,14 +423,14 @@ def vista_login():
     opcion = st.radio("Acción:", ["Iniciar Sesion", "Registrar Usuario"], horizontal=True)
 
     with st.form("auth_form"):
-        usr_input = st.text_input("Usuario ERP", key="login_usr_input")
-        pwd = st.text_input("Contraseña ERP", type="password", key="login_pwd_input")
+        usr_input = st.text_input("Usuario ERP", value=session_usr if session_usr else "", key="login_usr_input")
+        pwd = st.text_input("Contraseña ERP", type="password", value=session_pwd if session_pwd else "", key="login_pwd_input")
         
         email_input = None
         if opcion == "Registrar Usuario":
             email_input = st.text_input("Correo electrónico", key="login_email_input")
 
-        recordar_credenciales = st.checkbox("Recordar credenciales en este navegador", value=True)
+        recordar_credenciales = st.checkbox("Recordar credenciales y mantener sesión activa", value=True)
         
         submit = st.form_submit_button("CONTINUAR", use_container_width=True)
         
@@ -430,21 +458,15 @@ def vista_login():
                             st.session_state.usuario = registros[0]["usuario"]
                             st.session_state.password = registros[0]["password"]
 
+                            # Guardar cookies persistentes por 30 días
                             if recordar_credenciales:
-                                js_save = f"""
-                                    <script>
-                                        localStorage.setItem('chess_saved_usr', '{usuario_limpio}');
-                                        localStorage.setItem('chess_saved_pwd', '{pwd}');
-                                    </script>
-                                """
+                                exp_date = datetime.now() + timedelta(days=30)
+                                cookie_manager.set("chess_session_usr", usuario_limpio, key="set_usr", expires_at=exp_date)
+                                cookie_manager.set("chess_session_pwd", pwd, key="set_pwd", expires_at=exp_date)
                             else:
-                                js_save = """
-                                    <script>
-                                        localStorage.removeItem('chess_saved_usr');
-                                        localStorage.removeItem('chess_saved_pwd');
-                                    </script>
-                                """
-                            components.html(js_save, height=0, width=0)
+                                cookie_manager.delete("chess_session_usr", key="del_usr")
+                                cookie_manager.delete("chess_session_pwd", key="del_pwd")
+
                             st.rerun()
                         else:
                             st.error("Usuario, email o contraseña incorrectos.")
@@ -466,32 +488,21 @@ def vista_login():
                     except Exception as e:
                         st.error(f"Error al registrar en Supabase (usuario o email ya existente): {e}")
 
-    # Inyección JS aislada de bajo impacto (Evita duplicidad del DOM en renderizado)
+    # Inyección JS aislada de bajo impacto (Soporte autocompletado nativo)
     js_autofill = """
         <script>
             const doc = window.parent.document;
-            const savedUsr = localStorage.getItem('chess_saved_usr');
-            const savedPwd = localStorage.getItem('chess_saved_pwd');
-            
             const inputs = doc.querySelectorAll('input');
             inputs.forEach(function(input) {
                 if (input.type === 'text' && !input.getAttribute('data-configured')) {
                     input.setAttribute('autocomplete', 'username');
                     input.setAttribute('name', 'username');
                     input.setAttribute('data-configured', 'true');
-                    if (savedUsr && !input.value) {
-                        input.value = savedUsr;
-                        input.dispatchEvent(new Event('input', { bubbles: true }));
-                    }
                 }
                 if (input.type === 'password' && !input.getAttribute('data-configured')) {
                     input.setAttribute('autocomplete', 'current-password');
                     input.setAttribute('name', 'password');
                     input.setAttribute('data-configured', 'true');
-                    if (savedPwd && !input.value) {
-                        input.value = savedPwd;
-                        input.dispatchEvent(new Event('input', { bubbles: true }));
-                    }
                 }
             });
         </script>
@@ -506,6 +517,8 @@ def vista_principal():
         st.session_state.autenticado = False
         st.session_state.usuario = ""
         st.session_state.password = ""
+        cookie_manager.delete("chess_session_usr", key="logout_usr")
+        cookie_manager.delete("chess_session_pwd", key="logout_pwd")
         borrar_todo()
         st.rerun()
 
