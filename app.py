@@ -4,6 +4,7 @@ import re
 import time
 import sys
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from supabase import create_client, Client
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -337,8 +338,6 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
         time.sleep(4)
 
         log_msg("ACCESO AUTORIZADO Y SESIÓN INICIADA CORRECTAMENTE EN CHESS ERP.", placeholder_log, "OK")
-        
-        # REGISTRO EXPLÍCITO EN SUPABASE CON EL OPERADOR DEL INPUT
         registrar_en_historial(usuario, dominio_ruta, operador, motivo_final)
         
         return True, "Acceso e inicio de sesión completados correctamente", False, url_actual
@@ -353,41 +352,16 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
         if driver:
             driver.quit()
 
-# --- PANTALLA 1: LOGIN Y REGISTRO CON PERSISTENCIA DE CREDENCIALES ---
+# --- PANTALLA 1: LOGIN Y REGISTRO ---
 def vista_login():
     st.markdown("<h2 style='text-align: center;'>Acceso CHESS ERP</h2>", unsafe_allow_html=True)
     st.markdown("---")
     
     opcion = st.radio("Acción:", ["Iniciar Sesion", "Registrar Usuario"], horizontal=True)
 
-    st.markdown("""
-        <script>
-            (function() {
-                setTimeout(function() {
-                    const savedUsr = localStorage.getItem('chess_saved_usr');
-                    const savedPwd = localStorage.getItem('chess_saved_pwd');
-                    
-                    if (savedUsr && savedPwd) {
-                        const inputs = window.parent.document.querySelectorAll('input');
-                        inputs.forEach(function(input) {
-                            if (input.type === 'text' && !input.value) {
-                                input.value = savedUsr;
-                                input.dispatchEvent(new Event('input', { bubbles: true }));
-                            }
-                            if (input.type === 'password' && !input.value) {
-                                input.value = savedPwd;
-                                input.dispatchEvent(new Event('input', { bubbles: true }));
-                            }
-                        });
-                    }
-                }, 300);
-            })();
-        </script>
-    """, unsafe_allow_html=True)
-
     with st.form("auth_form"):
-        usr_input = st.text_input("Usuario ERP", key="login_usr_input")
-        pwd = st.text_input("Contraseña ERP", type="password", key="login_pwd_input")
+        usr_input = st.text_input("Usuario ERP")
+        pwd = st.text_input("Contraseña ERP", type="password")
         
         email_input = None
         if opcion == "Registrar Usuario":
@@ -420,22 +394,6 @@ def vista_login():
                             st.session_state.autenticado = True
                             st.session_state.usuario = registros[0]["usuario"]
                             st.session_state.password = registros[0]["password"]
-                            
-                            if recordar_credenciales:
-                                js_save = f"""
-                                    <script>
-                                        localStorage.setItem('chess_saved_usr', '{usuario_limpio}');
-                                        localStorage.setItem('chess_saved_pwd', '{pwd}');
-                                    </script>
-                                """
-                            else:
-                                js_save = """
-                                    <script>
-                                        localStorage.removeItem('chess_saved_usr');
-                                        localStorage.removeItem('chess_saved_pwd');
-                                    </script>
-                                """
-                            st.markdown(js_save, unsafe_allow_html=True)
                             st.rerun()
                         else:
                             st.error("Usuario, email o contraseña incorrectos.")
@@ -529,7 +487,7 @@ def vista_principal():
 
     st.markdown("#### Estado de Ejecución")
     placeholder_log = st.empty()
-        
+    
     if st.session_state.log_ejecucion:
         placeholder_log.code("\n".join(st.session_state.log_ejecucion), language="bash")
 
@@ -559,75 +517,76 @@ def vista_principal():
                 st.session_state.url_autorizada_lista = None
                 st.error(f"Error: {msg}")
 
+    # HISTORIAL DE AUTORIZACIONES (Únicamente en la pantalla principal)
     with st.expander("Ver Historial de Autorizaciones"):
-            col_hist_title, col_hist_btn = st.columns([3, 1])
-            with col_hist_title:
-                st.caption("Últimas autorizaciones registradas en la plataforma:")
-            with col_hist_btn:
-                if st.button("🔄 Actualizar", key="btn_refresh_hist", use_container_width=True):
-                    st.rerun()
+        col_hist_title, col_hist_btn = st.columns([3, 1])
+        with col_hist_title:
+            st.caption("Últimas autorizaciones registradas en la plataforma:")
+        with col_hist_btn:
+            if st.button("🔄 Actualizar", key="btn_refresh_hist", use_container_width=True):
+                st.rerun()
 
-            try:
-                res = (
-                    supabase.table("historial_autorizaciones")
-                    .select("created_at, operador, motivo, usuario, dominio_ruta")
-                    .order("created_at", desc=True)
-                    .limit(100)
-                    .execute()
-                )
-                registros = res.data or []
-                
-                if registros:
-                    datos_tabla = []
-                    for r in registros:
-                        fecha_raw = r.get("created_at", "")
-                        try:
-                            # Convertir la hora UTC de Supabase a la zona horaria local (UTC-3)
-                            fecha_dt = datetime.fromisoformat(fecha_raw.replace("Z", "+00:00"))
-                            fecha_local = fecha_dt.astimezone() # Toma la zona horaria local del sistema
-                            fecha_fmt = fecha_local.strftime("%d/%m/%Y %H:%M")
-                        except Exception:
-                            fecha_fmt = fecha_raw[:16]
-
-                        # Separar el Ticket (#123456) del resto del texto del Motivo
-                        motivo_completo = r.get("motivo", "") or "-"
-                        match_ticket = re.search(r"(#\d+)", motivo_completo)
-                        
-                        if match_ticket:
-                            id_ticket = match_ticket.group(1)
-                            motivo_limpio = re.sub(r"^#\d+\s*[-–—]?\s*", "", motivo_completo).strip()
-                            motivo_limpio = motivo_limpio if motivo_limpio else "-"
-                        else:
-                            id_ticket = "-"
-                            motivo_limpio = motivo_completo
-
-                        datos_tabla.append({
-                            "Fecha / Hora": fecha_fmt,
-                            "Operador Autorizado": r.get("operador", "-"),
-                            "Id Ticket": id_ticket,
-                            "Motivo": motivo_limpio,
-                            "Usuario Aprobador ERP": r.get("usuario", "-"),
-                            "Servidor / Ruta": r.get("dominio_ruta", "-")
-                        })
-
-                    st.dataframe(
-                        datos_tabla,
-                        use_container_width=True,
-                        hide_index=True,
-                        column_config={
-                            "Fecha / Hora": st.column_config.TextColumn("Fecha / Hora", width="medium"),
-                            "Operador Autorizado": st.column_config.TextColumn("Operador Autorizado", width="medium"),
-                            "Id Ticket": st.column_config.TextColumn("Id Ticket", width="small"),
-                            "Motivo": st.column_config.TextColumn("Motivo", width="large"),
-                            "Usuario Aprobador ERP": st.column_config.TextColumn("Usuario Aprobador ERP", width="small"),
-                            "Servidor / Ruta": st.column_config.TextColumn("Servidor / Ruta", width="medium"),
-                        }
-                    )
-                else:
-                    st.info("Aún no hay registros en el historial.")
-            except Exception as e:
-                st.warning(f"No se pudo cargar el historial desde Supabase: {e}")
+        try:
+            res = (
+                supabase.table("historial_autorizaciones")
+                .select("created_at, operador, motivo, usuario, dominio_ruta")
+                .order("created_at", desc=True)
+                .limit(100)
+                .execute()
+            )
+            registros = res.data or []
             
+            if registros:
+                tz_local = ZoneInfo("America/Argentina/Buenos_Aires")
+                datos_tabla = []
+                
+                for r in registros:
+                    fecha_raw = r.get("created_at", "")
+                    try:
+                        fecha_dt = datetime.fromisoformat(fecha_raw.replace("Z", "+00:00"))
+                        fecha_local = fecha_dt.astimezone(tz_local)
+                        fecha_fmt = fecha_local.strftime("%d/%m/%Y %H:%M")
+                    except Exception:
+                        fecha_fmt = fecha_raw[:16]
+
+                    motivo_completo = r.get("motivo", "") or "-"
+                    match_ticket = re.search(r"(#\d+)", motivo_completo)
+                    
+                    if match_ticket:
+                        id_ticket = match_ticket.group(1)
+                        motivo_limpio = re.sub(r"^#\d+\s*[-–—]?\s*", "", motivo_completo).strip()
+                        motivo_limpio = motivo_limpio if motivo_limpio else "-"
+                    else:
+                        id_ticket = "-"
+                        motivo_limpio = motivo_completo
+
+                    datos_tabla.append({
+                        "Fecha / Hora": fecha_fmt,
+                        "Operador Autorizado": r.get("operador", "-"),
+                        "Id Ticket": id_ticket,
+                        "Motivo": motivo_limpio,
+                        "Usuario Aprobador ERP": r.get("usuario", "-"),
+                        "Servidor / Ruta": r.get("dominio_ruta", "-")
+                    })
+
+                st.dataframe(
+                    datos_tabla,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Fecha / Hora": st.column_config.TextColumn("Fecha / Hora", width="medium"),
+                        "Operador Autorizado": st.column_config.TextColumn("Operador Autorizado", width="medium"),
+                        "Id Ticket": st.column_config.TextColumn("Id Ticket", width="small"),
+                        "Motivo": st.column_config.TextColumn("Motivo", width="large"),
+                        "Usuario Aprobador ERP": st.column_config.TextColumn("Usuario Aprobador ERP", width="small"),
+                        "Servidor / Ruta": st.column_config.TextColumn("Servidor / Ruta", width="medium"),
+                    }
+                )
+            else:
+                st.info("Aún no hay registros en el historial.")
+        except Exception as e:
+            st.warning(f"No se pudo cargar el historial desde Supabase: {e}")
+
 # --- EJECUCIÓN PRINCIPAL ---
 if not st.session_state.autenticado:
     vista_login()
