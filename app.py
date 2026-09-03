@@ -560,7 +560,16 @@ def vista_principal():
                 st.error(f"Error: {msg}")
 
     with st.expander("Ver Historial de Autorizaciones"):
+            # Contenedor superior para el botón de actualización y estado
+            col_hist_title, col_hist_btn = st.columns([3, 1])
+            with col_hist_title:
+                st.caption("Últimas 100 autorizaciones registradas en la plataforma:")
+            with col_hist_btn:
+                if st.button("🔄 Actualizar", key="btn_refresh_hist", use_container_width=True):
+                    st.rerun()
+
             try:
+                # Consulta a Supabase
                 res = (
                     supabase.table("historial_autorizaciones")
                     .select("created_at, operador, motivo, usuario, dominio_ruta")
@@ -580,13 +589,12 @@ def vista_principal():
                         except Exception:
                             fecha_fmt = fecha_raw[:16]
 
-                        # Separar el Ticket (#123456) del resto del texto del Motivo
+                        # Separar el Ticket (#123456) del texto del Motivo
                         motivo_completo = r.get("motivo", "") or "-"
                         match_ticket = re.search(r"(#\d+)", motivo_completo)
                         
                         if match_ticket:
                             id_ticket = match_ticket.group(1)
-                            # Eliminar el #ticket y guiones iniciales del texto del motivo
                             motivo_limpio = re.sub(r"^#\d+\s*[-–—]?\s*", "", motivo_completo).strip()
                             motivo_limpio = motivo_limpio if motivo_limpio else "-"
                         else:
@@ -618,8 +626,8 @@ def vista_principal():
                 else:
                     st.info("Aún no hay registros en el historial.")
             except Exception as e:
-                st.warning(f"No se pudo cargar el historial desde Supabase: {e}")    
-
+                st.warning(f"No se pudo cargar el historial desde Supabase: {e}")
+            
 # --- EJECUCIÓN PRINCIPAL ---
 if not st.session_state.autenticado:
     vista_login()
