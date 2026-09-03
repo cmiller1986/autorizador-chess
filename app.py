@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import re
 import time
 import sys
@@ -98,7 +99,6 @@ def extraer_y_actualizar(texto_mensaje):
     lineas = [l.strip() for l in texto_mensaje.split("\n") if l.strip()]
     primera_linea = lineas[0] if lineas else ""
 
-    # 1. Extracción del Operador
     if primera_linea.lower().startswith("url:") or primera_linea.lower().startswith("http"):
         operador = usuario_actual or "No detectado"
     else:
@@ -108,7 +108,6 @@ def extraer_y_actualizar(texto_mensaje):
             raw_op = re.split(r"\d+\s*min|Ahora|Ayer|\d{1,2}:\d{2}", primera_linea, flags=re.IGNORECASE)[0].strip()
         operador = raw_op if raw_op else "No detectado"
 
-    # 2. Extracción precisa de URL con Subdominio + Ruta (/ARxxx) + Puerto opcional
     pattern_url = r"(?:https?://)?(?:[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|\d{1,3}(?:\.\d{1,3}){3})(?::\d+)?(?:/[^\s\n]*)?"
     urls_encontradas = re.findall(pattern_url, texto_mensaje)
 
@@ -117,11 +116,9 @@ def extraer_y_actualizar(texto_mensaje):
     else:
         dominio_ruta = "No detectado"
 
-    # 3. Extracción del Ticket
     match_ticket = re.search(r"(#\d+)", texto_mensaje)
     ticket = match_ticket.group(1) if match_ticket else ""
 
-    # 4. Extracción limpia del Motivo (Omitiendo la línea de la URL para que no la inserte)
     match_motivo = re.search(r"[Mm]otivo:\s*(.*)", texto_mensaje, re.IGNORECASE)
     if match_motivo:
         motivo_raw = match_motivo.group(1).strip()
@@ -198,15 +195,14 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
         wait = WebDriverWait(driver, 20)
         log_msg("Navegador listo.", placeholder_log, "OK")
 
+        # Cargar la raíz e investigar redirección dinámica del router (/ARxxx)
         log_msg("Inicializando SPA de Chess ERP...", placeholder_log, "INFO")
         driver.get(url_base)
-        time.sleep(2)
+        time.sleep(3)  # Tiempo de espera para que resuelva redirecciones de servidor/router
 
-        # Construcción limpia de la URL /#/admin preservando subrutas
-        if "#" in url_base:
-            url_admin = url_base.split("#")[0].rstrip("/") + "/#/admin"
-        else:
-            url_admin = f"{url_base.rstrip('/')}/#/admin"
+        # Capturar la URL real resuelta por el navegador
+        url_actual = driver.current_url.split("#")[0].rstrip("/")
+        url_admin = f"{url_actual}/#/admin"
 
         log_msg(f"Navegando a la pantalla de admin: {url_admin}", placeholder_log, "INFO")
         driver.get(url_admin)
@@ -223,12 +219,10 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
                 var selector = arguments[0];
                 var val = arguments[1];
                 
-                // 1. Búsqueda directa por ID, formcontrolname o name
                 var el = document.getElementById(selector) || 
                          document.querySelector('[formcontrolname="' + selector + '"]') ||
                          document.querySelector('[name="' + selector + '"]');
                 
-                // 2. Escáner de respaldo por contexto y posición en el DOM
                 if (!el) {
                     var inputs = Array.from(document.querySelectorAll('input:not([type="hidden"]):not([type="checkbox"]):not([type="button"]), textarea'));
                     
@@ -239,7 +233,6 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
                     } else if (selector.toLowerCase().includes('operador')) {
                         el = inputs.find(i => (i.placeholder || '').toLowerCase().includes('operador') || (i.id || '').toLowerCase().includes('operador')) || inputs[2];
                     } else if (selector.toLowerCase().includes('detalle') || selector.toLowerCase().includes('motivo')) {
-                        // El motivo siempre es el último campo visible del formulario
                         el = document.querySelector('textarea') || 
                              inputs.find(i => (i.placeholder || '').toLowerCase().includes('motivo') || (i.id || '').toLowerCase().includes('motivo')) || 
                              inputs[inputs.length - 1];
@@ -313,7 +306,7 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
         log_msg("Esperando redirección automática a la pantalla de Login...", placeholder_log, "INFO")
         time.sleep(3)
 
-        # PASO 3: Iniciar Sesión Final sin duplicación
+        # PASO 3: Iniciar Sesión Final
         log_msg("Iniciando sesión en la pantalla de Login...", placeholder_log, "INFO")
         wait.until(EC.presence_of_element_located((By.XPATH, xpath_input_usr)))
 
@@ -347,34 +340,61 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
 
         log_msg("ACCESO AUTORIZADO Y SESIÓN INICIADA CORRECTAMENTE EN CHESS ERP.", placeholder_log, "OK")
         registrar_en_historial(usuario, dominio_ruta, operador, motivo_final)
-        return True, "Acceso e inicio de sesión completados correctamente", False
+        return True, "Acceso e inicio de sesión completados correctamente", False, url_actual
 
     except Exception as e:
         nombre_error = type(e).__name__
         detalle = str(e).strip().split("\n")[0]
         mensaje_completo = f"{nombre_error}: {detalle}" if detalle else nombre_error
         log_msg(f"ERROR EN AUTOMATIZACIÓN: {mensaje_completo}", placeholder_log, "ERROR")
-        return False, mensaje_completo, False
+        return False, mensaje_completo, False, None
     finally:
         if driver:
             driver.quit()
 
-# --- PANTALLA 1: LOGIN Y REGISTRO ---
-# --- PANTALLA 1: LOGIN Y REGISTRO ---
+# --- PANTALLA 1: LOGIN Y REGISTRO CON PERSISTENCIA DE CREDENCIALES ---
 def vista_login():
     st.markdown("<h2 style='text-align: center;'>Acceso CHESS ERP</h2>", unsafe_allow_html=True)
     st.markdown("---")
     
     opcion = st.radio("Acción:", ["Iniciar Sesion", "Registrar Usuario"], horizontal=True)
 
+    def guardar_credenciales_js(usr, pwd, recordar=True):
+        if recordar:
+            js = f"""
+            <script>
+                localStorage.setItem('chess_saved_usr', '{usr}');
+                localStorage.setItem('chess_saved_pwd', '{pwd}');
+            </script>
+            """
+        else:
+            js = """
+            <script>
+                localStorage.removeItem('chess_saved_usr');
+                localStorage.removeItem('chess_saved_pwd');
+            </script>
+            """
+        components.html(js, height=0)
+
+    components.html("""
+        <script>
+            const u = localStorage.getItem('chess_saved_usr') || '';
+            const p = localStorage.getItem('chess_saved_pwd') || '';
+            if (u && p) {
+                window.parent.postMessage({type: 'streamlit:setComponentValue', value: {u: u, p: p}}, '*');
+            }
+        </script>
+    """, height=0)
+
     with st.form("auth_form"):
-        usr_input = st.text_input("Usuario ERP")
-        pwd = st.text_input("Contraseña ERP", type="password")
+        usr_input = st.text_input("Usuario ERP", key="login_usr_input")
+        pwd = st.text_input("Contraseña ERP", type="password", key="login_pwd_input")
         
-        # Muestra el correo electrónico ÚNICAMENTE cuando la opción elegida es Registrar Usuario
         email_input = None
         if opcion == "Registrar Usuario":
             email_input = st.text_input("Correo electrónico")
+
+        recordar_credenciales = st.checkbox("Recordar credenciales en este navegador", value=True)
         
         submit = st.form_submit_button("CONTINUAR", use_container_width=True)
         
@@ -401,6 +421,8 @@ def vista_login():
                             st.session_state.autenticado = True
                             st.session_state.usuario = registros[0]["usuario"]
                             st.session_state.password = registros[0]["password"]
+                            
+                            guardar_credenciales_js(usuario_limpio, pwd, recordar_credenciales)
                             st.rerun()
                         else:
                             st.error("Usuario, email o contraseña incorrectos.")
@@ -421,7 +443,7 @@ def vista_login():
                         st.success(f"Usuario '{usuario_limpio}' registrado exitosamente. Ya puede iniciar sesión.")
                     except Exception as e:
                         st.error(f"Error al registrar en Supabase (usuario o email ya existente): {e}")
-                        
+
 # --- PANTALLA 2: PRINCIPAL ---
 def vista_principal():
     st.sidebar.title("Menú")
@@ -481,10 +503,8 @@ def vista_principal():
 
     st.markdown("---")
 
-    # 1. BOTÓN PRINCIPAL DE ACCIÓN
     btn_permitir = st.button("PERMITIR ACCESO EN CHESS ERP", type="primary", use_container_width=True)
 
-    # BOTÓN DIRECTO DE ENLACE (Aparece tan pronto hay una URL autorizada)
     if st.session_state.url_autorizada_lista:
         st.link_button(
             "🔗 Abrir ERP Habilitado en la Web", 
@@ -494,21 +514,17 @@ def vista_principal():
 
     st.markdown("---")
 
-    # 2. ÁREA DE ESTADO DE EJECUCIÓN (Ubicada debajo)
     st.markdown("#### Estado de Ejecución")
     placeholder_log = st.empty()
     
     if st.session_state.log_ejecucion:
         placeholder_log.code("\n".join(st.session_state.log_ejecucion), language="bash")
 
-    # Lógica al presionar el botón de disparo
     if btn_permitir:
         if not dominio_final or dominio_final == "No detectado":
             st.error("Por favor ingrese un Servidor / Ruta URL válido.")
         else:
-            url_destino = dominio_final if dominio_final.startswith("http") else f"https://{dominio_final}"
-            
-            exito, msg, advertencia = automatizar_web(
+            exito, msg, advertencia, url_resuelta = automatizar_web(
                 dominio_final,
                 st.session_state.usuario,
                 st.session_state.password,
@@ -518,12 +534,14 @@ def vista_principal():
                 placeholder_log
             )
             if exito:
-                st.session_state.url_autorizada_lista = url_destino
+                st.session_state.url_autorizada_lista = url_resuelta or (
+                    dominio_final if dominio_final.startswith("http") else f"https://{dominio_final}"
+                )
                 if not advertencia:
                     st.success(f"{msg}")
                 else:
                     st.warning(f"{msg}")
-                st.rerun()  # Forzar recarga para mostrar el botón de enlace de forma inmediata
+                st.rerun()
             else:
                 st.session_state.url_autorizada_lista = None
                 st.error(f"Error: {msg}")
