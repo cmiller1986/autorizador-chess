@@ -386,32 +386,39 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
         if driver:
             driver.quit()
 
-# --- PANTALLA 1: LOGIN Y REGISTRO CON PERSISTENCIA DE CREDENCIALES ---
+# --- PANTALLA 1: LOGIN Y REGISTRO ---
 def vista_login():
     st.markdown("<h2 style='text-align: center;'>Acceso CHESS ERP</h2>", unsafe_allow_html=True)
     st.markdown("---")
     
     opcion = st.radio("Acción:", ["Iniciar Sesion", "Registrar Usuario"], horizontal=True)
 
-    # Inyección JS para auto-completar desde localStorage
+    # Inyección JS para autocompletado nativo y compatibilidad con gestor de contraseñas de móviles y PC
     st.markdown("""
         <script>
             setTimeout(function() {
                 const savedUsr = localStorage.getItem('chess_saved_usr');
                 const savedPwd = localStorage.getItem('chess_saved_pwd');
-                if (savedUsr && savedPwd) {
-                    const inputs = window.parent.document.querySelectorAll('input');
-                    inputs.forEach(function(input) {
-                        if (input.type === 'text' && !input.value) {
+                const inputs = window.parent.document.querySelectorAll('input');
+                
+                inputs.forEach(function(input) {
+                    if (input.type === 'text') {
+                        input.setAttribute('autocomplete', 'username');
+                        input.setAttribute('name', 'username');
+                        if (savedUsr && !input.value) {
                             input.value = savedUsr;
                             input.dispatchEvent(new Event('input', { bubbles: true }));
                         }
-                        if (input.type === 'password' && !input.value) {
+                    }
+                    if (input.type === 'password') {
+                        input.setAttribute('autocomplete', 'current-password');
+                        input.setAttribute('name', 'password');
+                        if (savedPwd && !input.value) {
                             input.value = savedPwd;
                             input.dispatchEvent(new Event('input', { bubbles: true }));
                         }
-                    });
-                }
+                    }
+                });
             }, 300);
         </script>
     """, unsafe_allow_html=True)
@@ -452,7 +459,6 @@ def vista_login():
                             st.session_state.usuario = registros[0]["usuario"]
                             st.session_state.password = registros[0]["password"]
 
-                            # Script de guardado/limpieza de localStorage
                             if recordar_credenciales:
                                 js_save = f"""
                                     <script>
@@ -559,7 +565,6 @@ def vista_principal():
         )
 
     # 2. VALIDACIÓN PREVENTIVA DE SESIÓN ACTIVA (< 10 MIN)
-    # Se evalúa arriba de los logs de ejecución
     sesion_activa_detectada = False
     if btn_permitir and dominio_final and dominio_final != "No detectado":
         sesion_previa = buscar_autorizacion_reciente(dominio_final, minutos=10)
@@ -582,7 +587,7 @@ def vista_principal():
 
     st.markdown("---")
 
-    # 3. SECCIÓN DE LOGS DE EJECUCIÓN (Consola abajo)
+    # 3. SECCIÓN DE LOGS DE EJECUCIÓN (Ubicada en la parte inferior)
     st.markdown("#### Estado de Ejecución")
     placeholder_log = st.empty()
     
