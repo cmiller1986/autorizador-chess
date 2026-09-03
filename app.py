@@ -387,49 +387,20 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
             driver.quit()
 
 # --- PANTALLA 1: LOGIN Y REGISTRO ---
+# --- PANTALLA 1: LOGIN Y REGISTRO ---
 def vista_login():
     st.markdown("<h2 style='text-align: center;'>Acceso CHESS ERP</h2>", unsafe_allow_html=True)
     st.markdown("---")
     
     opcion = st.radio("Acción:", ["Iniciar Sesion", "Registrar Usuario"], horizontal=True)
 
-    # Inyección JS para autocompletado nativo y compatibilidad con gestor de contraseñas de móviles y PC
-    st.markdown("""
-        <script>
-            setTimeout(function() {
-                const savedUsr = localStorage.getItem('chess_saved_usr');
-                const savedPwd = localStorage.getItem('chess_saved_pwd');
-                const inputs = window.parent.document.querySelectorAll('input');
-                
-                inputs.forEach(function(input) {
-                    if (input.type === 'text') {
-                        input.setAttribute('autocomplete', 'username');
-                        input.setAttribute('name', 'username');
-                        if (savedUsr && !input.value) {
-                            input.value = savedUsr;
-                            input.dispatchEvent(new Event('input', { bubbles: true }));
-                        }
-                    }
-                    if (input.type === 'password') {
-                        input.setAttribute('autocomplete', 'current-password');
-                        input.setAttribute('name', 'password');
-                        if (savedPwd && !input.value) {
-                            input.value = savedPwd;
-                            input.dispatchEvent(new Event('input', { bubbles: true }));
-                        }
-                    }
-                });
-            }, 300);
-        </script>
-    """, unsafe_allow_html=True)
-
     with st.form("auth_form"):
-        usr_input = st.text_input("Usuario ERP")
-        pwd = st.text_input("Contraseña ERP", type="password")
+        usr_input = st.text_input("Usuario ERP", key="login_usr_input")
+        pwd = st.text_input("Contraseña ERP", type="password", key="login_pwd_input")
         
         email_input = None
         if opcion == "Registrar Usuario":
-            email_input = st.text_input("Correo electrónico")
+            email_input = st.text_input("Correo electrónico", key="login_email_input")
 
         recordar_credenciales = st.checkbox("Recordar credenciales en este navegador", value=True)
         
@@ -473,7 +444,7 @@ def vista_login():
                                         localStorage.removeItem('chess_saved_pwd');
                                     </script>
                                 """
-                            st.markdown(js_save, unsafe_allow_html=True)
+                            components.html(js_save, height=0, width=0)
                             st.rerun()
                         else:
                             st.error("Usuario, email o contraseña incorrectos.")
@@ -495,6 +466,38 @@ def vista_login():
                     except Exception as e:
                         st.error(f"Error al registrar en Supabase (usuario o email ya existente): {e}")
 
+    # Inyección JS aislada de bajo impacto (Evita duplicidad del DOM en renderizado)
+    js_autofill = """
+        <script>
+            const doc = window.parent.document;
+            const savedUsr = localStorage.getItem('chess_saved_usr');
+            const savedPwd = localStorage.getItem('chess_saved_pwd');
+            
+            const inputs = doc.querySelectorAll('input');
+            inputs.forEach(function(input) {
+                if (input.type === 'text' && !input.getAttribute('data-configured')) {
+                    input.setAttribute('autocomplete', 'username');
+                    input.setAttribute('name', 'username');
+                    input.setAttribute('data-configured', 'true');
+                    if (savedUsr && !input.value) {
+                        input.value = savedUsr;
+                        input.dispatchEvent(new Event('input', { bubbles: true }));
+                    }
+                }
+                if (input.type === 'password' && !input.getAttribute('data-configured')) {
+                    input.setAttribute('autocomplete', 'current-password');
+                    input.setAttribute('name', 'password');
+                    input.setAttribute('data-configured', 'true');
+                    if (savedPwd && !input.value) {
+                        input.value = savedPwd;
+                        input.dispatchEvent(new Event('input', { bubbles: true }));
+                    }
+                }
+            });
+        </script>
+    """
+    components.html(js_autofill, height=0, width=0)
+    
 # --- PANTALLA 2: PRINCIPAL ---
 def vista_principal():
     st.sidebar.title("Menú")
