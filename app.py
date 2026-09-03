@@ -359,32 +359,31 @@ def vista_login():
     
     opcion = st.radio("Acción:", ["Iniciar Sesion", "Registrar Usuario"], horizontal=True)
 
-    def guardar_credenciales_js(usr, pwd, recordar=True):
-        if recordar:
-            js = f"""
-            <script>
-                localStorage.setItem('chess_saved_usr', '{usr}');
-                localStorage.setItem('chess_saved_pwd', '{pwd}');
-            </script>
-            """
-        else:
-            js = """
-            <script>
-                localStorage.removeItem('chess_saved_usr');
-                localStorage.removeItem('chess_saved_pwd');
-            </script>
-            """
-        components.html(js, height=0)
-
-    components.html("""
+    # Inyección de JS nativa que recupera y auto-completa las credenciales desde localStorage
+    st.markdown("""
         <script>
-            const u = localStorage.getItem('chess_saved_usr') || '';
-            const p = localStorage.getItem('chess_saved_pwd') || '';
-            if (u && p) {
-                window.parent.postMessage({type: 'streamlit:setComponentValue', value: {u: u, p: p}}, '*');
-            }
+            (function() {
+                setTimeout(function() {
+                    const savedUsr = localStorage.getItem('chess_saved_usr');
+                    const savedPwd = localStorage.getItem('chess_saved_pwd');
+                    
+                    if (savedUsr && savedPwd) {
+                        const inputs = window.parent.document.querySelectorAll('input');
+                        inputs.forEach(function(input) {
+                            if (input.type === 'text' && !input.value) {
+                                input.value = savedUsr;
+                                input.dispatchEvent(new Event('input', { bubbles: true }));
+                            }
+                            if (input.type === 'password' && !input.value) {
+                                input.value = savedPwd;
+                                input.dispatchEvent(new Event('input', { bubbles: true }));
+                            }
+                        });
+                    }
+                }, 300);
+            })();
         </script>
-    """, height=0)
+    """, unsafe_allow_html=True)
 
     with st.form("auth_form"):
         usr_input = st.text_input("Usuario ERP", key="login_usr_input")
@@ -422,7 +421,22 @@ def vista_login():
                             st.session_state.usuario = registros[0]["usuario"]
                             st.session_state.password = registros[0]["password"]
                             
-                            guardar_credenciales_js(usuario_limpio, pwd, recordar_credenciales)
+                            # Script JS que se ejecuta al autenticar con éxito para guardar/borrar en localStorage
+                            if recordar_credenciales:
+                                js_save = f"""
+                                    <script>
+                                        localStorage.setItem('chess_saved_usr', '{usuario_limpio}');
+                                        localStorage.setItem('chess_saved_pwd', '{pwd}');
+                                    </script>
+                                """
+                            else:
+                                js_save = """
+                                    <script>
+                                        localStorage.removeItem('chess_saved_usr');
+                                        localStorage.removeItem('chess_saved_pwd');
+                                    </script>
+                                """
+                            st.markdown(js_save, unsafe_allow_html=True)
                             st.rerun()
                         else:
                             st.error("Usuario, email o contraseña incorrectos.")
