@@ -580,10 +580,24 @@ def vista_principal():
                         except Exception:
                             fecha_fmt = fecha_raw[:16]
 
+                        # Separar el Ticket (#123456) del resto del texto del Motivo
+                        motivo_completo = r.get("motivo", "") or "-"
+                        match_ticket = re.search(r"(#\d+)", motivo_completo)
+                        
+                        if match_ticket:
+                            id_ticket = match_ticket.group(1)
+                            # Eliminar el #ticket y guiones iniciales del texto del motivo
+                            motivo_limpio = re.sub(r"^#\d+\s*[-–—]?\s*", "", motivo_completo).strip()
+                            motivo_limpio = motivo_limpio if motivo_limpio else "-"
+                        else:
+                            id_ticket = "-"
+                            motivo_limpio = motivo_completo
+
                         datos_tabla.append({
                             "Fecha / Hora": fecha_fmt,
                             "Operador Autorizado": r.get("operador", "-"),
-                            "Motivo / Ticket": r.get("motivo", "-"),
+                            "Id Ticket": id_ticket,
+                            "Motivo": motivo_limpio,
                             "Usuario Aprobador ERP": r.get("usuario", "-"),
                             "Servidor / Ruta": r.get("dominio_ruta", "-")
                         })
@@ -595,7 +609,8 @@ def vista_principal():
                         column_config={
                             "Fecha / Hora": st.column_config.TextColumn("Fecha / Hora", width="medium"),
                             "Operador Autorizado": st.column_config.TextColumn("Operador Autorizado", width="medium"),
-                            "Motivo / Ticket": st.column_config.TextColumn("Motivo / Ticket", width="large"),
+                            "Id Ticket": st.column_config.TextColumn("Id Ticket", width="small"),
+                            "Motivo": st.column_config.TextColumn("Motivo", width="large"),
                             "Usuario Aprobador ERP": st.column_config.TextColumn("Usuario Aprobador ERP", width="small"),
                             "Servidor / Ruta": st.column_config.TextColumn("Servidor / Ruta", width="medium"),
                         }
@@ -603,7 +618,7 @@ def vista_principal():
                 else:
                     st.info("Aún no hay registros en el historial.")
             except Exception as e:
-                st.warning(f"No se pudo cargar el historial desde Supabase: {e}")
+                st.warning(f"No se pudo cargar el historial desde Supabase: {e}")    
 
 # --- EJECUCIÓN PRINCIPAL ---
 if not st.session_state.autenticado:
