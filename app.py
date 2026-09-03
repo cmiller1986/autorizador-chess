@@ -558,66 +558,69 @@ def vista_principal():
             use_container_width=True
         )
 
+    # 2. VALIDACIÓN PREVENTIVA DE SESIÓN ACTIVA (< 10 MIN)
+    # Se evalúa arriba de los logs de ejecución
+    sesion_activa_detectada = False
+    if btn_permitir and dominio_final and dominio_final != "No detectado":
+        sesion_previa = buscar_autorizacion_reciente(dominio_final, minutos=10)
+        if sesion_previa["activa"] and not st.session_state.get("forzar_ejecucion", False):
+            sesion_activa_detectada = True
+            st.warning(
+                f"⚠️ **SESIÓN ACTIVA DETECTADA:** Este entorno (`{dominio_final}`) ya fue autorizado hace "
+                f"**{sesion_previa['hace_minutos']} min** (a las {sesion_previa['fecha']}) por el aprobador "
+                f"**{sesion_previa['usuario']}** para el operador **{sesion_previa['operador']}**."
+            )
+            
+            col_reutilizar, col_forzar = st.columns(2)
+            with col_reutilizar:
+                url_directa = dominio_final if dominio_final.startswith("http") else f"https://{dominio_final}"
+                st.link_button("🔗 Ir directamente al ERP", url_directa, use_container_width=True)
+            with col_forzar:
+                if st.button("⚡ Re-autorizar de todos modos", use_container_width=True):
+                    st.session_state["forzar_ejecucion"] = True
+                    st.rerun()
+
     st.markdown("---")
 
-    # 2. SECCIÓN DE LOGS DE EJECUCIÓN
+    # 3. SECCIÓN DE LOGS DE EJECUCIÓN (Consola abajo)
     st.markdown("#### Estado de Ejecución")
     placeholder_log = st.empty()
     
     if st.session_state.log_ejecucion:
         placeholder_log.code("\n".join(st.session_state.log_ejecucion), language="bash")
 
-    # 3. LÓGICA DE DETECCIÓN Y AUTOMATIZACIÓN
-    if btn_permitir:
+    # 4. DISPARO DE AUTOMATIZACIÓN (Solo si presiona Permitir y no hay advertencia pendiente)
+    if btn_permitir and not sesion_activa_detectada:
         if not dominio_final or dominio_final == "No detectado":
             st.error("Por favor ingrese un Servidor / Ruta URL válido.")
         else:
-            # Detector preventivo de sesión activa (< 10 min)
-            sesion_previa = buscar_autorizacion_reciente(dominio_final, minutos=10)
+            st.session_state["forzar_ejecucion"] = False
             
-            if sesion_previa["activa"] and not st.session_state.get("forzar_ejecucion", False):
-                st.warning(
-                    f"⚠️ **SESIÓN ACTIVA DETECTADA:** Este entorno (`{dominio_final}`) ya fue autorizado hace "
-                    f"**{sesion_previa['hace_minutos']} min** (a las {sesion_previa['fecha']}) por el aprobador "
-                    f"**{sesion_previa['usuario']}** para el operador **{sesion_previa['operador']}**."
+            exito, msg, advertencia, url_resuelta = automatizar_web(
+                dominio_final,
+                st.session_state.usuario,
+                st.session_state.password,
+                operador_final,
+                motivo_ejecucion,
+                txt_mensaje,
+                placeholder_log
+            )
+            if exito:
+                st.session_state.url_autorizada_lista = url_resuelta or (
+                    dominio_final if dominio_final.startswith("http") else f"https://{dominio_final}"
                 )
-                
-                col_reutilizar, col_forzar = st.columns(2)
-                with col_reutilizar:
-                    url_directa = dominio_final if dominio_final.startswith("http") else f"https://{dominio_final}"
-                    st.link_button("🔗 Ir directamente al ERP", url_directa, use_container_width=True)
-                with col_forzar:
-                    if st.button("⚡ Re-autorizar de todos modos", use_container_width=True):
-                        st.session_state["forzar_ejecucion"] = True
-                        st.rerun()
-            else:
-                st.session_state["forzar_ejecucion"] = False
-                
-                exito, msg, advertencia, url_resuelta = automatizar_web(
-                    dominio_final,
-                    st.session_state.usuario,
-                    st.session_state.password,
-                    operador_final,
-                    motivo_ejecucion,
-                    txt_mensaje,
-                    placeholder_log
-                )
-                if exito:
-                    st.session_state.url_autorizada_lista = url_resuelta or (
-                        dominio_final if dominio_final.startswith("http") else f"https://{dominio_final}"
-                    )
-                    if not advertencia:
-                        st.success(f"{msg}")
-                    else:
-                        st.warning(f"{msg}")
-                    st.rerun()
+                if not advertencia:
+                    st.success(f"{msg}")
                 else:
-                    st.session_state.url_autorizada_lista = None
-                    st.error(f"Error: {msg}")
+                    st.warning(f"{msg}")
+                st.rerun()
+            else:
+                st.session_state.url_autorizada_lista = None
+                st.error(f"Error: {msg}")
 
     st.markdown("---")
 
-    # 4. HISTORIAL DE AUTORIZACIONES
+    # 5. HISTORIAL DE AUTORIZACIONES
     with st.expander("Ver Historial de Autorizaciones"):
         col_hist_title, col_hist_btn = st.columns([3, 1])
         with col_hist_title:
