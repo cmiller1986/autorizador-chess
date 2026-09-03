@@ -155,6 +155,45 @@ def borrar_todo():
     st.session_state.ultimo_mensaje_procesado = None
     st.session_state.url_autorizada_lista = None
 
+def buscar_autorizacion_reciente(dominio_ruta, minutos=10):
+    """
+    Busca en Supabase si existe una autorización previa para el mismo dominio/ruta
+    gestionada dentro de los últimos `minutos` minutos (por cualquier usuario).
+    """
+    try:
+        res = (
+            supabase.table("historial_autorizaciones")
+            .select("created_at, usuario, operador, dominio_ruta")
+            .order("created_at", desc=True)
+            .limit(20)
+            .execute()
+        )
+        registros = res.data or []
+        tz_local = ZoneInfo("America/Argentina/Buenos_Aires")
+        ahora = datetime.now(tz_local)
+
+        # Limpiar dominio ingresado para comparación
+        dom_limpio = dominio_ruta.lower().replace("https://", "").replace("http://", "").strip().rstrip("/")
+
+        for r in registros:
+            dom_reg = (r.get("dominio_ruta") or "").lower().replace("https://", "").replace("http://", "").strip().rstrip("/")
+            if dom_limpio in dom_reg or dom_reg in dom_limpio:
+                fecha_raw = r.get("created_at", "")
+                fecha_dt = datetime.fromisoformat(fecha_raw.replace("Z", "+00:00")).astimezone(tz_local)
+                
+                diferencia_minutos = (ahora - fecha_dt).total_seconds() / 60.0
+                if diferencia_minutos <= minutos:
+                    return {
+                        "activa": True,
+                        "hace_minutos": int(diferencia_minutos),
+                        "usuario": r.get("usuario", "Desconocido"),
+                        "operador": r.get("operador", "Desconocido"),
+                        "fecha": fecha_dt.strftime("%H:%M:%S")
+                    }
+    except Exception as e:
+        print(f"Error al verificar autorización reciente: {e}")
+    return {"activa": False}
+
 def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, texto_mensaje, placeholder_log):
     st.session_state.log_ejecucion = []
     
@@ -474,8 +513,10 @@ def vista_principal():
 
     st.markdown("---")
 
+# 1. BOTÓN PRINCIPAL DE ACCIÓN
     btn_permitir = st.button("PERMITIR ACCESO EN CHESS ERP", type="primary", use_container_width=True)
 
+    # BOTÓN DIRECTO DE ENLACE (Aparece cuando hay una URL autorizada lista)
     if st.session_state.url_autorizada_lista:
         st.link_button(
             "🔗 Abrir ERP Habilitado en la Web", 
@@ -483,39 +524,54 @@ def vista_principal():
             use_container_width=True
         )
 
-    st.markdown("---")
-
-    st.markdown("#### Estado de Ejecución")
-    placeholder_log = st.empty()
-    
-    if st.session_state.log_ejecucion:
-        placeholder_log.code("\n".join(st.session_state.log_ejecucion), language="bash")
-
+    # Lógica de verificación e inicio al presionar "PERMITIR ACCESO EN CHESS ERP"
     if btn_permitir:
         if not dominio_final or dominio_final == "No detectado":
             st.error("Por favor ingrese un Servidor / Ruta URL válido.")
         else:
-            exito, msg, advertencia, url_resuelta = automatizar_web(
-                dominio_final,
-                st.session_state.usuario,
-                st.session_state.password,
-                operador_final,
-                motivo_ejecucion,
-                txt_mensaje,
-                placeholder_log
-            )
-            if exito:
-                st.session_state.url_autorizada_lista = url_resuelta or (
-                    dominio_final if dominio_final.startswith("http") else f"https://{dominio_final}"
+            # DETECTOR PREVENTIVO DE SESIÓN ACTIVA (< 10 MINUTOS)
+            sesion_previa = buscar_autorizacion_reciente(dominio_final, minutos=10)
+            
+            if sesion_previa["activa"] and not st.session_state.get("forzar_ejecucion", False):
+                st.warning(
+                    f"⚠️ **SESIÓN ACTIVA DETECTADA:** Este entorno (`{dominio_final}`) ya fue autorizado hace "
+                    f"**{sesion_previa['hace_minutos']} min** (a las {sesion_previa['fecha']}) por el aprobador "
+                    f"**{sesion_previa['usuario']}** para el operador **{sesion_previa['operador']}**."
                 )
-                if not advertencia:
-                    st.success(f"{msg}")
-                else:
-                    st.warning(f"{msg}")
-                st.rerun()
+                
+                col_reutilizar, col_forzar = st.columns(2)
+                with col_reutilizar:
+                    url_directa = dominio_final if dominio_final.startswith("http") else f"https://{dominio_final}"
+                    st.link_button("🔗 Ir directamente al ERP", url_directa, use_container_width=True)
+                with col_forzar:
+                    if st.button("⚡ Re-autorizar de todos modos", use_container_width=True):
+                        st.session_state["forzar_ejecucion"] = True
+                        st.rerun()
             else:
-                st.session_state.url_autorizada_lista = None
-                st.error(f"Error: {msg}")
+                # Resetear la bandera de forzado y ejecutar Selenium
+                st.session_state["forzar_ejecucion"] = False
+                
+                exito, msg, advertencia, url_resuelta = automatizar_web(
+                    dominio_final,
+                    st.session_state.usuario,
+                    st.session_state.password,
+                    operador_final,
+                    motivo_ejecucion,
+                    txt_mensaje,
+                    placeholder_log
+                )
+                if exito:
+                    st.session_state.url_autorizada_lista = url_resuelta or (
+                        dominio_final if dominio_final.startswith("http") else f"https://{dominio_final}"
+                    )
+                    if not advertencia:
+                        st.success(f"{msg}")
+                    else:
+                        st.warning(f"{msg}")
+                    st.rerun()
+                else:
+                    st.session_state.url_autorizada_lista = None
+                    st.error(f"Error: {msg}")
 
     # HISTORIAL DE AUTORIZACIONES (Únicamente en la pantalla principal)
     with st.expander("Ver Historial de Autorizaciones"):
