@@ -67,17 +67,17 @@ if "url_autorizada_lista" not in st.session_state:
 
 # --- FUNCIONES AUXILIARES ---
 def log_msg(msg, placeholder_log=None, estado="INFO"):
-    prefix = ""
     if estado == "OK":
-        prefix = "[OK] "
+        badge = '[OK]'
     elif estado == "ERROR":
-        prefix = "[ERROR] "
+        badge = '[ERROR]'
     elif estado == "WARN":
-        prefix = "[WARN] "
+        badge = '[WARN]'
     else:
-        prefix = "[...]"
-    
-    linea = f"{prefix} {msg}"
+        badge = '[INFO]'
+
+    hora = datetime.now().strftime("%H:%M:%S")
+    linea = f"[{hora}] {badge} {msg}"
     st.session_state.log_ejecucion.append(linea)
     
     if placeholder_log:
@@ -529,7 +529,7 @@ def vista_principal():
 
     st.markdown("#### Estado de Ejecución")
     placeholder_log = st.empty()
-    
+        
     if st.session_state.log_ejecucion:
         placeholder_log.code("\n".join(st.session_state.log_ejecucion), language="bash")
 
@@ -559,27 +559,54 @@ def vista_principal():
                 st.session_state.url_autorizada_lista = None
                 st.error(f"Error: {msg}")
 
-    with st.expander("Ver Historial de Autorizaciones"):
-        try:
-            res = (
-                supabase.table("historial_autorizaciones")
-                .select("*")
-                .order("created_at", desc=True)
-                .limit(100)
-                .execute()
-            )
-            registros = res.data or []
-            if registros:
-                for r in registros:
-                    fecha = r.get("created_at", "")
-                    st.text(
-                        f"[{fecha}] USUARIO: {r.get('usuario','')} | RUTA: {r.get('dominio_ruta','')} "
-                        f"| OPERADOR: {r.get('operador','')} | MOTIVO: {r.get('motivo','')}"
+    with st.expander(" Ver Historial de Autorizaciones"):
+            try:
+                res = (
+                    supabase.table("historial_autorizaciones")
+                    .select("created_at, usuario, dominio_ruta, operador, motivo")
+                    .order("created_at", desc=True)
+                    .limit(100)
+                    .execute()
+                )
+                registros = res.data or []
+                
+                if registros:
+                    # Formatear datos para la tabla
+                    datos_tabla = []
+                    for r in registros:
+                        # Formatear fecha a lectura legible
+                        fecha_raw = r.get("created_at", "")
+                        try:
+                            fecha_dt = datetime.fromisoformat(fecha_raw.replace("Z", "+00:00"))
+                            fecha_fmt = fecha_dt.strftime("%d/%m/%Y %H:%M")
+                        except Exception:
+                            fecha_fmt = fecha_raw[:16]
+
+                        datos_tabla.append({
+                            "Fecha / Hora": fecha_fmt,
+                            "Usuario ERP": r.get("usuario", "-"),
+                            "Servidor / Ruta": r.get("dominio_ruta", "-"),
+                            "Operador Autorizado": r.get("operador", "-"),
+                            "Motivo / Ticket": r.get("motivo", "-")
+                        })
+
+                    # Mostrar tabla estilizada de Streamlit
+                    st.dataframe(
+                        datos_tabla,
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "Fecha / Hora": st.column_config.TextColumn("Fecha / Hora", width="medium"),
+                            "Usuario ERP": st.column_config.TextColumn("Usuario ERP", width="small"),
+                            "Servidor / Ruta": st.column_config.TextColumn("Servidor / Ruta", width="medium"),
+                            "Operador Autorizado": st.column_config.TextColumn("Operador Autorizado", width="medium"),
+                            "Motivo / Ticket": st.column_config.TextColumn("Motivo / Ticket", width="large"),
+                        }
                     )
-            else:
-                st.info("Aún no hay registros en el historial.")
-        except Exception as e:
-            st.warning(f"No se pudo cargar el historial desde Supabase: {e}")
+                else:
+                    st.info("Aún no hay registros en el historial.")
+            except Exception as e:
+                st.warning(f"No se pudo cargar el historial desde Supabase: {e}")
 
 # --- EJECUCIÓN PRINCIPAL ---
 if not st.session_state.autenticado:
