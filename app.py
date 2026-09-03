@@ -41,8 +41,7 @@ def init_supabase() -> Client:
 
 supabase = init_supabase()
 
-# --- INICIALIZACIÓN DE COOKIE MANAGER (Corregido sin argumentos obsoletos) ---
-@st.cache_resource
+# --- INICIALIZACIÓN DE COOKIE MANAGER (Sin caché para evitar CachedWidgetWarning) ---
 def get_cookie_manager():
     return stx.CookieManager()
 
