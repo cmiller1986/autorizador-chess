@@ -41,8 +41,8 @@ def init_supabase() -> Client:
 
 supabase = init_supabase()
 
-# --- INICIALIZACIÓN DE COOKIE MANAGER ---
-@st.cache_resource(experimental_allow_widgets=True)
+# --- INICIALIZACIÓN DE COOKIE MANAGER (Corregido sin argumentos obsoletos) ---
+@st.cache_resource
 def get_cookie_manager():
     return stx.CookieManager()
 
@@ -458,7 +458,6 @@ def vista_login():
                             st.session_state.usuario = registros[0]["usuario"]
                             st.session_state.password = registros[0]["password"]
 
-                            # Guardar cookies persistentes por 30 días
                             if recordar_credenciales:
                                 exp_date = datetime.now() + timedelta(days=30)
                                 cookie_manager.set("chess_session_usr", usuario_limpio, key="set_usr", expires_at=exp_date)
@@ -488,7 +487,6 @@ def vista_login():
                     except Exception as e:
                         st.error(f"Error al registrar en Supabase (usuario o email ya existente): {e}")
 
-    # Inyección JS aislada de bajo impacto (Soporte autocompletado nativo)
     js_autofill = """
         <script>
             const doc = window.parent.document;
@@ -570,7 +568,6 @@ def vista_principal():
 
     st.markdown("---")
 
-    # 1. BOTÓN PRINCIPAL DE ACCIÓN Y ENLACE DIRECTO
     btn_permitir = st.button("PERMITIR ACCESO EN CHESS ERP", type="primary", use_container_width=True)
 
     if st.session_state.url_autorizada_lista:
@@ -580,7 +577,6 @@ def vista_principal():
             use_container_width=True
         )
 
-    # 2. VALIDACIÓN PREVENTIVA DE SESIÓN ACTIVA (< 10 MIN)
     sesion_activa_detectada = False
     if btn_permitir and dominio_final and dominio_final != "No detectado":
         sesion_previa = buscar_autorizacion_reciente(dominio_final, minutos=10)
@@ -603,14 +599,12 @@ def vista_principal():
 
     st.markdown("---")
 
-    # 3. SECCIÓN DE LOGS DE EJECUCIÓN (Ubicada en la parte inferior)
     st.markdown("#### Estado de Ejecución")
     placeholder_log = st.empty()
     
     if st.session_state.log_ejecucion:
         placeholder_log.code("\n".join(st.session_state.log_ejecucion), language="bash")
 
-    # 4. DISPARO DE AUTOMATIZACIÓN (Solo si presiona Permitir y no hay advertencia pendiente)
     if btn_permitir and not sesion_activa_detectada:
         if not dominio_final or dominio_final == "No detectado":
             st.error("Por favor ingrese un Servidor / Ruta URL válido.")
@@ -641,7 +635,6 @@ def vista_principal():
 
     st.markdown("---")
 
-    # 5. HISTORIAL DE AUTORIZACIONES
     with st.expander("Ver Historial de Autorizaciones"):
         col_hist_title, col_hist_btn = st.columns([3, 1])
         with col_hist_title:
