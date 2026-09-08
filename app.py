@@ -365,10 +365,10 @@ if __name__ == "__main__":
 def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, texto_mensaje, placeholder_log):
     st.session_state.log_ejecucion = []
     
-    # Instalación previa de Chromium
+    # Instalación previa de Chromium (las dependencias OS las gestiona packages.txt)
     try:
-        log_msg("Verificando/Instalando Chromium y dependencias OS...", placeholder_log, "INFO")
-        subprocess.run([sys.executable, "-m", "playwright", "install", "--with-deps", "chromium"], check=True)
+        log_msg("Verificando/Instalando Chromium...", placeholder_log, "INFO")
+        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
     except Exception as e:
         log_msg(f"Aviso en verificación de Playwright: {e}", placeholder_log, "WARN")
 
