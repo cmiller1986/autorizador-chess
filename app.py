@@ -7,15 +7,7 @@ import sys
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from supabase import create_client, Client
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import StaleElementReferenceException
-from selenium.webdriver.chrome.service import Service as ChromeService
-from webdriver_manager.chrome import ChromeDriverManager
-from webdriver_manager.core.os_manager import ChromeType
+from playwright.sync_api import sync_playwright
 
 
 # --- CONFIGURACIÓN DE PÁGINA ---
@@ -234,61 +226,46 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
 
     log_msg(f"Iniciando acceso dinámico a: {url_base}", placeholder_log, "INFO")
 
-    options = webdriver.ChromeOptions()
-    options.add_argument("--headless=new")
-    options.add_argument("--window-size=1920,1080")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--ignore-certificate-errors")
-    options.add_argument("--ignore-ssl-errors=yes")
-    options.add_argument("--allow-insecure-localhost")
-
-    driver = None
     try:
-        log_msg("Iniciando navegador Chrome optimizado...", placeholder_log, "INFO")
-        
-        # Configuración adaptativa de ChromeDriver según SO
-        if sys.platform.startswith("linux"):
-            service = ChromeService(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install())
-        else:
-            service = ChromeService(ChromeDriverManager().install())
-            if sys.platform.startswith("win"):
-                service.creation_flags = 0x08000000
+        with sync_playwright() as p:
+            log_msg("Iniciando navegador Chromium optimizado (Playwright)...", placeholder_log, "INFO")
+            
+            browser = p.chromium.launch(
+                headless=True,
+                args=[
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--ignore-certificate-errors"
+                ]
+            )
+            
+            context = browser.new_context(ignore_https_errors=True, viewport={"width": 1920, "height": 1080})
+            page = context.new_page()
 
-        driver = webdriver.Chrome(service=service, options=options)
-        wait = WebDriverWait(driver, 20)
-        log_msg("Navegador listo.", placeholder_log, "OK")
+            log_msg("Inicializando SPA de Chess ERP...", placeholder_log, "INFO")
+            page.goto(url_base, timeout=30000)
+            page.wait_for_timeout(2000)
 
-        log_msg("Inicializando SPA de Chess ERP...", placeholder_log, "INFO")
-        driver.get(url_base)
-        time.sleep(3)
+            url_actual = page.url.split("#")[0].rstrip("/")
+            url_admin = f"{url_actual}/#/admin"
 
-        url_actual = driver.current_url.split("#")[0].rstrip("/")
-        url_admin = f"{url_actual}/#/admin"
+            log_msg(f"Navegando a la pantalla de admin: {url_admin}", placeholder_log, "INFO")
+            page.goto(url_admin, timeout=30000)
+            
+            log_msg("Esperando formulario de Autorización...", placeholder_log, "INFO")
+            page.wait_for_selector("#usuario, input[formcontrolname='usuario']", timeout=20000)
+            log_msg("Formulario de Autorización detectado.", placeholder_log, "OK")
 
-        log_msg(f"Navegando a la pantalla de admin: {url_admin}", placeholder_log, "INFO")
-        driver.get(url_admin)
-        time.sleep(2)
-
-        log_msg("Esperando formulario de Autorización...", placeholder_log, "INFO")
-        xpath_input_usr = "//input[@id='usuario' or @formcontrolname='usuario']"
-        wait.until(EC.presence_of_element_located((By.XPATH, xpath_input_usr)))
-        log_msg("Formulario de Autorización detectado.", placeholder_log, "OK")
-        time.sleep(1)
-
-        def inyectar_campo_js(id_o_control, valor, nombre_campo):
-            script = """
-                var selector = arguments[0];
-                var val = arguments[1];
-                
+            # Script de inyección JS compatible
+            script_inyect = """
+            ([selector, val]) => {
                 var el = document.getElementById(selector) || 
                          document.querySelector('[formcontrolname="' + selector + '"]') ||
                          document.querySelector('[name="' + selector + '"]');
                 
                 if (!el) {
                     var inputs = Array.from(document.querySelectorAll('input:not([type="hidden"]):not([type="checkbox"]):not([type="button"]), textarea'));
-                    
                     if (selector.toLowerCase().includes('usuario')) {
                         el = inputs[0];
                     } else if (selector.toLowerCase().includes('contrasenia') || selector.toLowerCase().includes('password')) {
@@ -313,98 +290,78 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
                     return true;
                 }
                 return false;
+            }
             """
-            for _ in range(5):
-                res = driver.execute_script(script, id_o_control, valor)
-                if res:
-                    return True
-                time.sleep(0.5)
-            log_msg(f"No se pudo inyectar el valor en {nombre_campo}", placeholder_log, "ERROR")
-            return False
 
-        # PASO 1: Formulario de Autorización
-        log_msg(f"Ingresando Usuario Admin: '{usuario}'...", placeholder_log, "INFO")
-        if inyectar_campo_js("usuario", usuario, "Usuario"):
-            log_msg("Usuario ingresado correctamente.", placeholder_log, "OK")
-        time.sleep(0.4)
+            # PASO 1: Formulario Autorización
+            log_msg(f"Ingresando Usuario Admin: '{usuario}'...", placeholder_log, "INFO")
+            page.evaluate(script_inyect, ["usuario", usuario])
+            page.wait_for_timeout(400)
 
-        log_msg("Ingresando Contraseña...", placeholder_log, "INFO")
-        if inyectar_campo_js("contrasenia", password, "Contraseña"):
-            log_msg("Contraseña ingresada correctamente.", placeholder_log, "OK")
-        time.sleep(1.0)
+            log_msg("Ingresando Contraseña...", placeholder_log, "INFO")
+            page.evaluate(script_inyect, ["contrasenia", password])
+            page.wait_for_timeout(800)
 
-        log_msg(f"Asignando Operador Autorizado: '{operador}'...", placeholder_log, "INFO")
-        ok_op = inyectar_campo_js("operadorAutorizado", operador, "Operador Autorizado")
-        if not ok_op:
-            return False, "No se pudo escribir el Operador Autorizado en el formulario.", False, None
-        log_msg(f"Operador Autorizado '{operador}' asignado correctamente.", placeholder_log, "OK")
-        time.sleep(0.4)
+            log_msg(f"Asignando Operador Autorizado: '{operador}'...", placeholder_log, "INFO")
+            page.evaluate(script_inyect, ["operadorAutorizado", operador])
+            page.wait_for_timeout(400)
 
-        log_msg(f"Asignando Motivo: '{motivo_final}'...", placeholder_log, "INFO")
-        ok_mot = inyectar_campo_js("detalle", motivo_final, "Motivo")
-        if not ok_mot:
-            return False, "No se pudo escribir el Motivo en el formulario.", False, None
-        log_msg("Motivo asignado.", placeholder_log, "OK")
-        time.sleep(1)
+            log_msg(f"Asignando Motivo: '{motivo_final}'...", placeholder_log, "INFO")
+            page.evaluate(script_inyect, ["detalle", motivo_final])
+            page.wait_for_timeout(800)
 
-        log_msg("Enviando autorización al ERP...", placeholder_log, "INFO")
-        btn_enviado = driver.execute_script("""
-            var btn = document.querySelector('button[label="PERMITIR ACCESO"]') || document.querySelector('button.login-button') || document.querySelector('button');
-            if (btn) {
-                btn.removeAttribute('disabled');
-                btn.classList.remove('p-disabled');
-                btn.click();
-                return true;
-            }
-            return false;
-        """)
-
-        if not btn_enviado:
-            log_msg("No se encontró el botón 'PERMITIR ACCESO'.", placeholder_log, "ERROR")
-            return False, "No se encontró el botón 'PERMITIR ACCESO'.", False, None
-        
-        log_msg("Solicitud enviada al servidor ERP.", placeholder_log, "OK")
-
-        # PASO 2: Redirección automática al Login
-        log_msg("Esperando redirección automática a la pantalla de Login...", placeholder_log, "INFO")
-        time.sleep(3)
-
-        # PASO 3: Iniciar Sesión Final
-        log_msg("Iniciando sesión en la pantalla de Login...", placeholder_log, "INFO")
-        wait.until(EC.presence_of_element_located((By.XPATH, xpath_input_usr)))
-
-        inyectar_campo_js("usuario", usuario, "Usuario Login")
-        time.sleep(0.4)
-        inyectar_campo_js("contrasenia", password, "Contraseña Login")
-        time.sleep(0.8)
-
-        log_msg("Enviando credenciales de inicio de sesión...", placeholder_log, "INFO")
-        driver.execute_script("""
-            var inputPass = document.getElementById('contrasenia') || document.querySelector('input[type="password"]');
-            var form = inputPass ? inputPass.closest('form') : null;
-            if (form) {
-                form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
-            } else {
-                var btnLogin = document.querySelector('button[label="INICIAR SESIÓN"]') || document.querySelector('button.login-button') || Array.from(document.querySelectorAll('button')).find(b => b.innerText.includes('INICIAR'));
-                if (btnLogin) {
-                    btnLogin.removeAttribute('disabled');
-                    btnLogin.click();
+            log_msg("Enviando autorización al ERP...", placeholder_log, "INFO")
+            page.evaluate("""
+                () => {
+                    var btn = document.querySelector('button[label="PERMITIR ACCESO"]') || document.querySelector('button.login-button') || document.querySelector('button');
+                    if (btn) {
+                        btn.removeAttribute('disabled');
+                        btn.classList.remove('p-disabled');
+                        btn.click();
+                    }
                 }
-            }
-        """)
+            """)
+            log_msg("Solicitud enviada al servidor ERP.", placeholder_log, "OK")
 
-        try:
-            elem_pass = driver.find_element(By.XPATH, "//input[@type='password']")
-            elem_pass.send_keys(Keys.ENTER)
-        except Exception:
-            pass
+            # PASO 2: Redirección al Login
+            log_msg("Esperando redirección automática a la pantalla de Login...", placeholder_log, "INFO")
+            page.wait_for_timeout(3000)
 
-        time.sleep(4)
+            # PASO 3: Login Final
+            log_msg("Iniciando sesión en la pantalla de Login...", placeholder_log, "INFO")
+            page.wait_for_selector("#usuario, input[formcontrolname='usuario']", timeout=15000)
 
-        log_msg("ACCESO AUTORIZADO Y SESIÓN INICIADA CORRECTAMENTE EN CHESS ERP.", placeholder_log, "OK")
-        registrar_en_historial(usuario, dominio_ruta, operador, motivo_final)
-        
-        return True, "Acceso e inicio de sesión completados correctamente", False, url_actual
+            page.evaluate(script_inyect, ["usuario", usuario])
+            page.wait_for_timeout(400)
+            page.evaluate(script_inyect, ["contrasenia", password])
+            page.wait_for_timeout(800)
+
+            log_msg("Enviando credenciales de inicio de sesión...", placeholder_log, "INFO")
+            page.evaluate("""
+                () => {
+                    var inputPass = document.getElementById('contrasenia') || document.querySelector('input[type="password"]');
+                    var form = inputPass ? inputPass.closest('form') : null;
+                    if (form) {
+                        form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+                    } else {
+                        var btnLogin = document.querySelector('button[label="INICIAR SESIÓN"]') || document.querySelector('button.login-button') || Array.from(document.querySelectorAll('button')).find(b => b.innerText.includes('INICIAR'));
+                        if (btnLogin) {
+                            btnLogin.removeAttribute('disabled');
+                            btnLogin.click();
+                        }
+                    }
+                }
+            """)
+            
+            page.keyboard.press("Enter")
+            page.wait_for_timeout(4000)
+
+            browser.close()
+
+            log_msg("ACCESO AUTORIZADO Y SESIÓN INICIADA CORRECTAMENTE EN CHESS ERP.", placeholder_log, "OK")
+            registrar_en_historial(usuario, dominio_ruta, operador, motivo_final)
+            
+            return True, "Acceso e inicio de sesión completados correctamente", False, url_actual
 
     except Exception as e:
         nombre_error = type(e).__name__
@@ -412,9 +369,6 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
         mensaje_completo = f"{nombre_error}: {detalle}" if detalle else nombre_error
         log_msg(f"ERROR EN AUTOMATIZACIÓN: {mensaje_completo}", placeholder_log, "ERROR")
         return False, mensaje_completo, False, None
-    finally:
-        if driver:
-            driver.quit()
 
 # --- PANTALLA 1: LOGIN Y REGISTRO ---
 def vista_login():
