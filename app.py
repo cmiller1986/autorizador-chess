@@ -1,10 +1,8 @@
 import streamlit as st
-import streamlit.components.v1 as components
 import extra_streamlit_components as stx
 
 import re
 import sys
-import os
 import json
 import subprocess
 from datetime import datetime, timedelta
@@ -52,7 +50,6 @@ st.markdown(
 def init_supabase() -> Client:
     url = st.secrets["SUPABASE_URL"]
     key = st.secrets["SUPABASE_KEY"]
-
     return create_client(url, key)
 
 
@@ -107,8 +104,13 @@ for clave, valor in ESTADOS_DEFAULT.items():
 # SESIÓN PERSISTENTE
 # =========================================================
 
-session_usr = cookie_manager.get(cookie="chess_session_usr")
-session_pwd = cookie_manager.get(cookie="chess_session_pwd")
+session_usr = cookie_manager.get(
+    cookie="chess_session_usr"
+)
+
+session_pwd = cookie_manager.get(
+    cookie="chess_session_pwd"
+)
 
 
 if (
@@ -127,7 +129,10 @@ if (
                 f"usuario.eq.{session_usr},"
                 f"email.eq.{session_usr.lower()}"
             )
-            .eq("password", session_pwd)
+            .eq(
+                "password",
+                session_pwd
+            )
             .execute()
         )
 
@@ -136,8 +141,14 @@ if (
         if registros:
 
             st.session_state.autenticado = True
-            st.session_state.usuario = registros[0]["usuario"]
-            st.session_state.password = registros[0]["password"]
+
+            st.session_state.usuario = (
+                registros[0]["usuario"]
+            )
+
+            st.session_state.password = (
+                registros[0]["password"]
+            )
 
     except Exception:
         pass
@@ -160,13 +171,22 @@ def log_msg(
         "INFO": "[INFO]"
     }
 
-    badge = badges.get(estado, "[INFO]")
+    badge = badges.get(
+        estado,
+        "[INFO]"
+    )
 
-    hora = datetime.now().strftime("%H:%M:%S")
+    hora = datetime.now().strftime(
+        "%H:%M:%S"
+    )
 
-    linea = f"[{hora}] {badge} {msg}"
+    linea = (
+        f"[{hora}] {badge} {msg}"
+    )
 
-    st.session_state.log_ejecucion.append(linea)
+    st.session_state.log_ejecucion.append(
+        linea
+    )
 
     if placeholder_log:
 
@@ -214,9 +234,13 @@ def registrar_en_historial(
 # PROCESAMIENTO DEL MENSAJE
 # =========================================================
 
-def extraer_y_actualizar(texto_mensaje):
+def extraer_y_actualizar(
+    texto_mensaje
+):
 
-    usuario_actual = st.session_state.usuario
+    usuario_actual = (
+        st.session_state.usuario
+    )
 
     lineas = [
         linea.strip()
@@ -277,9 +301,9 @@ def extraer_y_actualizar(texto_mensaje):
     pattern_url = (
         r"(?:https?://)?"
         r"(?:"
-            r"[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
-            r"|"
-            r"\d{1,3}(?:\.\d{1,3}){3}"
+        r"[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
+        r"|"
+        r"\d{1,3}(?:\.\d{1,3}){3}"
         r")"
         r"(?::\d+)?"
         r"(?:/[^\s\n]*)?"
@@ -373,7 +397,9 @@ def extraer_y_actualizar(texto_mensaje):
         )
 
 
-    # Limpieza final del motivo
+    # -----------------------------------------------------
+    # LIMPIEZA FINAL DEL MOTIVO
+    # -----------------------------------------------------
 
     motivo_raw = re.sub(
         r"(?:https?://)?\S+\.\S+",
@@ -386,10 +412,21 @@ def extraer_y_actualizar(texto_mensaje):
     # ACTUALIZAR ESTADOS
     # -----------------------------------------------------
 
-    st.session_state["in_dom"] = dominio_ruta
-    st.session_state["in_op"] = operador
-    st.session_state["in_tick"] = ticket
-    st.session_state["in_mot"] = motivo_raw
+    st.session_state.in_dom = (
+        dominio_ruta
+    )
+
+    st.session_state.in_op = (
+        operador
+    )
+
+    st.session_state.in_tick = (
+        ticket
+    )
+
+    st.session_state.in_mot = (
+        motivo_raw
+    )
 
 
 # =========================================================
@@ -400,19 +437,30 @@ def borrar_todo():
 
     st.session_state.txt_mensaje = ""
 
-    st.session_state.in_dom = "No detectado"
-    st.session_state.in_op = "No detectado"
+    st.session_state.in_dom = (
+        "No detectado"
+    )
+
+    st.session_state.in_op = (
+        "No detectado"
+    )
 
     st.session_state.in_tick = ""
     st.session_state.in_mot = ""
 
     st.session_state.log_ejecucion = []
 
-    st.session_state.ultimo_mensaje_procesado = None
+    st.session_state.ultimo_mensaje_procesado = (
+        None
+    )
 
-    st.session_state.url_autorizada_lista = None
+    st.session_state.url_autorizada_lista = (
+        None
+    )
 
-    st.session_state.forzar_ejecucion = False
+    st.session_state.forzar_ejecucion = (
+        False
+    )
 
 
 # =========================================================
@@ -456,8 +504,14 @@ def buscar_autorizacion_reciente(
             return (
                 (valor or "")
                 .lower()
-                .replace("https://", "")
-                .replace("http://", "")
+                .replace(
+                    "https://",
+                    ""
+                )
+                .replace(
+                    "http://",
+                    ""
+                )
                 .strip()
                 .rstrip("/")
             )
@@ -471,7 +525,9 @@ def buscar_autorizacion_reciente(
         for registro in registros:
 
             dom_reg = limpiar_dominio(
-                registro.get("dominio_ruta")
+                registro.get(
+                    "dominio_ruta"
+                )
             )
 
 
@@ -484,6 +540,9 @@ def buscar_autorizacion_reciente(
                     "created_at",
                     ""
                 )
+
+                if not fecha_raw:
+                    continue
 
                 fecha_dt = (
                     datetime
@@ -503,9 +562,12 @@ def buscar_autorizacion_reciente(
                 ).total_seconds() / 60
 
 
-                if diferencia_minutos <= minutos:
+                if (
+                    0 <= diferencia_minutos <= minutos
+                ):
 
                     return {
+
                         "activa": True,
 
                         "hace_minutos": int(
@@ -525,6 +587,7 @@ def buscar_autorizacion_reciente(
                         "fecha": fecha_dt.strftime(
                             "%H:%M:%S"
                         )
+
                     }
 
 
@@ -560,8 +623,11 @@ def preparar_chromium():
             ],
 
             capture_output=True,
+
             text=True,
+
             timeout=180
+
         )
 
 
@@ -574,12 +640,16 @@ def preparar_chromium():
             False,
             resultado.stderr
             or resultado.stdout
+            or "Error desconocido"
         )
 
 
     except Exception as e:
 
-        return False, str(e)
+        return (
+            False,
+            str(e)
+        )
 
 
 # =========================================================
@@ -620,17 +690,29 @@ def run():
     )
 
 
-    dominio_ruta = params["dominio_ruta"]
+    dominio_ruta = params[
+        "dominio_ruta"
+    ]
 
-    usuario = params["usuario"]
+    usuario = params[
+        "usuario"
+    ]
 
-    password = params["password"]
+    password = params[
+        "password"
+    ]
 
-    operador = params["operador"]
+    operador = params[
+        "operador"
+    ]
 
-    motivo_final = params["motivo_final"]
+    motivo_final = params[
+        "motivo_final"
+    ]
 
-    texto_mensaje = params["texto_mensaje"]
+    texto_mensaje = params[
+        "texto_mensaje"
+    ]
 
 
     # =====================================================
@@ -643,7 +725,6 @@ def run():
     ):
 
         url_base = dominio_ruta
-
 
     else:
 
@@ -679,10 +760,12 @@ def run():
     # AUTOMATIZACIÓN
     # =====================================================
 
+    browser = None
+    context = None
+
     try:
 
         with sync_playwright() as p:
-
 
             browser = p.chromium.launch(
 
@@ -734,7 +817,6 @@ def run():
                 wait_until="domcontentloaded"
             )
 
-
             page.wait_for_timeout(
                 2000
             )
@@ -784,17 +866,12 @@ def run():
             ([selector, val]) => {
 
                 var el =
-
                     document.getElementById(selector)
-
                     ||
-
                     document.querySelector(
                         '[formcontrolname="' + selector + '"]'
                     )
-
                     ||
-
                     document.querySelector(
                         '[name="' + selector + '"]'
                     );
@@ -803,13 +880,9 @@ def run():
                 if (!el) {
 
                     var inputs = Array.from(
-
                         document.querySelectorAll(
-
                             'input:not([type="hidden"]):not([type="checkbox"]):not([type="button"]), textarea'
-
                         )
-
                     );
 
 
@@ -824,100 +897,69 @@ def run():
 
 
                     else if (
-
                         selector.toLowerCase()
                         .includes('contrasenia')
-
                         ||
-
                         selector.toLowerCase()
                         .includes('password')
-
                     ) {
 
                         el =
-
                             document.querySelector(
                                 'input[type="password"]'
                             )
-
                             ||
-
                             inputs[1];
 
                     }
 
 
                     else if (
-
                         selector.toLowerCase()
                         .includes('operador')
-
                     ) {
 
                         el =
-
                             inputs.find(
-
                                 i =>
-
                                     (i.placeholder || '')
                                     .toLowerCase()
                                     .includes('operador')
-
                                     ||
-
                                     (i.id || '')
                                     .toLowerCase()
                                     .includes('operador')
-
                             )
-
                             ||
-
                             inputs[2];
 
                     }
 
 
                     else if (
-
                         selector.toLowerCase()
                         .includes('detalle')
-
                         ||
-
                         selector.toLowerCase()
                         .includes('motivo')
-
                     ) {
 
                         el =
-
                             document.querySelector(
                                 'textarea'
                             )
-
                             ||
-
                             inputs.find(
-
                                 i =>
-
                                     (i.placeholder || '')
                                     .toLowerCase()
                                     .includes('motivo')
-
                                     ||
-
                                     (i.id || '')
                                     .toLowerCase()
                                     .includes('motivo')
-
                             )
-
                             ||
-
                             inputs[
                                 inputs.length - 1
                             ];
@@ -943,38 +985,32 @@ def run():
 
 
                     el.dispatchEvent(
-
                         new Event(
                             'input',
                             {
                                 bubbles: true
                             }
                         )
-
                     );
 
 
                     el.dispatchEvent(
-
                         new Event(
                             'change',
                             {
                                 bubbles: true
                             }
                         )
-
                     );
 
 
                     el.dispatchEvent(
-
                         new Event(
                             'blur',
                             {
                                 bubbles: true
                             }
                         )
-
                     );
 
 
@@ -990,7 +1026,7 @@ def run():
 
 
             # -------------------------------------------------
-            # COMPLETAR FORMULARIO
+            # COMPLETAR USUARIO
             # -------------------------------------------------
 
             page.evaluate(
@@ -1004,11 +1040,14 @@ def run():
 
             )
 
-
             page.wait_for_timeout(
                 400
             )
 
+
+            # -------------------------------------------------
+            # COMPLETAR CONTRASEÑA
+            # -------------------------------------------------
 
             page.evaluate(
 
@@ -1021,11 +1060,14 @@ def run():
 
             )
 
-
             page.wait_for_timeout(
                 800
             )
 
+
+            # -------------------------------------------------
+            # COMPLETAR OPERADOR
+            # -------------------------------------------------
 
             page.evaluate(
 
@@ -1038,11 +1080,14 @@ def run():
 
             )
 
-
             page.wait_for_timeout(
                 400
             )
 
+
+            # -------------------------------------------------
+            # COMPLETAR MOTIVO
+            # -------------------------------------------------
 
             page.evaluate(
 
@@ -1055,7 +1100,6 @@ def run():
 
             )
 
-
             page.wait_for_timeout(
                 800
             )
@@ -1065,38 +1109,31 @@ def run():
             # PERMITIR ACCESO
             # -------------------------------------------------
 
-            page.evaluate(
+            resultado_permitir = page.evaluate(
+
                 """
                 () => {
 
                     var btn =
-
                         document.querySelector(
                             'button[label="PERMITIR ACCESO"]'
                         )
-
                         ||
-
                         document.querySelector(
                             'button.login-button'
                         )
-
                         ||
-
                         Array.from(
                             document.querySelectorAll(
                                 'button'
                             )
                         ).find(
-
                             b =>
-
-                                b.innerText
+                                (b.innerText || '')
                                 .toUpperCase()
                                 .includes(
                                     'PERMITIR'
                                 )
-
                         );
 
 
@@ -1121,7 +1158,15 @@ def run():
 
                 }
                 """
+
             )
+
+
+            if not resultado_permitir:
+
+                raise Exception(
+                    "No se encontró el botón PERMITIR ACCESO."
+                )
 
 
             page.wait_for_timeout(
@@ -1142,6 +1187,10 @@ def run():
             )
 
 
+            # -------------------------------------------------
+            # COMPLETAR USUARIO NUEVAMENTE
+            # -------------------------------------------------
+
             page.evaluate(
 
                 script_inyect,
@@ -1153,11 +1202,14 @@ def run():
 
             )
 
-
             page.wait_for_timeout(
                 400
             )
 
+
+            # -------------------------------------------------
+            # COMPLETAR CONTRASEÑA NUEVAMENTE
+            # -------------------------------------------------
 
             page.evaluate(
 
@@ -1170,7 +1222,6 @@ def run():
 
             )
 
-
             page.wait_for_timeout(
                 800
             )
@@ -1180,25 +1231,22 @@ def run():
             # LOGIN
             # -------------------------------------------------
 
-            page.evaluate(
+            resultado_login = page.evaluate(
+
                 """
                 () => {
 
                     var inputPass =
-
                         document.getElementById(
                             'contrasenia'
                         )
-
                         ||
-
                         document.querySelector(
                             'input[type="password"]'
                         );
 
 
                     var form =
-
                         inputPass
                         ? inputPass.closest(
                             'form'
@@ -1209,7 +1257,6 @@ def run():
                     if (form) {
 
                         form.dispatchEvent(
-
                             new Event(
                                 'submit',
                                 {
@@ -1217,59 +1264,62 @@ def run():
                                     bubbles: true
                                 }
                             )
-
                         );
 
+                        return true;
+
                     }
 
-                    else {
 
-                        var btnLogin =
-
-                            document.querySelector(
-                                'button[label="INICIAR SESIÓN"]'
+                    var btnLogin =
+                        document.querySelector(
+                            'button[label="INICIAR SESIÓN"]'
+                        )
+                        ||
+                        document.querySelector(
+                            'button.login-button'
+                        )
+                        ||
+                        Array.from(
+                            document.querySelectorAll(
+                                'button'
                             )
-
-                            ||
-
-                            document.querySelector(
-                                'button.login-button'
-                            )
-
-                            ||
-
-                            Array.from(
-                                document.querySelectorAll(
-                                    'button'
+                        ).find(
+                            b =>
+                                (b.innerText || '')
+                                .toUpperCase()
+                                .includes(
+                                    'INICIAR'
                                 )
-                            ).find(
-
-                                b =>
-
-                                    b.innerText
-                                    .toUpperCase()
-                                    .includes(
-                                        'INICIAR'
-                                    )
-
-                            );
+                        );
 
 
-                        if (btnLogin) {
+                    if (btnLogin) {
 
-                            btnLogin.removeAttribute(
-                                'disabled'
-                            );
+                        btnLogin.removeAttribute(
+                            'disabled'
+                        );
 
-                            btnLogin.click();
+                        btnLogin.click();
 
-                        }
+                        return true;
 
                     }
+
+
+                    return false;
 
                 }
                 """
+
             )
+
+
+            if not resultado_login:
+
+                raise Exception(
+                    "No se encontró el formulario o botón de inicio de sesión."
+                )
 
 
             page.keyboard.press(
@@ -1282,9 +1332,17 @@ def run():
             )
 
 
-            context.close()
+            # -------------------------------------------------
+            # CERRAR NAVEGADOR
+            # -------------------------------------------------
 
-            browser.close()
+            if context:
+
+                context.close()
+
+            if browser:
+
+                browser.close()
 
 
             print(
@@ -1298,6 +1356,24 @@ def run():
 
 
     except Exception as e:
+
+        try:
+
+            if context:
+                context.close()
+
+        except Exception:
+            pass
+
+
+        try:
+
+            if browser:
+                browser.close()
+
+        except Exception:
+            pass
+
 
         print(
             json.dumps(
@@ -1348,7 +1424,6 @@ def automatizar_web(
 
 ):
 
-
     st.session_state.log_ejecucion = []
 
 
@@ -1386,15 +1461,10 @@ def automatizar_web(
 
 
         return (
-
             False,
-
             f"No se pudo preparar Chromium: {chromium_error}",
-
             False,
-
             None
-
         )
 
 
@@ -1487,14 +1557,33 @@ def automatizar_web(
 
         if lineas_salida:
 
+            try:
 
-            data = json.loads(
-                lineas_salida[-1]
-            )
+                data = json.loads(
+                    lineas_salida[-1]
+                )
+
+            except json.JSONDecodeError:
+
+                log_msg(
+
+                    f"Respuesta no válida del worker: {salida_raw}",
+
+                    placeholder_log,
+
+                    "ERROR"
+
+                )
+
+                return (
+                    False,
+                    "El worker devolvió una respuesta no válida.",
+                    False,
+                    None
+                )
 
 
             if data.get("success"):
-
 
                 log_msg(
 
@@ -1535,7 +1624,6 @@ def automatizar_web(
 
             else:
 
-
                 err_msg = data.get(
 
                     "error",
@@ -1571,7 +1659,6 @@ def automatizar_web(
 
         else:
 
-
             log_msg(
 
                 f"Respuesta inesperada del worker: {salida_raw}",
@@ -1597,7 +1684,6 @@ def automatizar_web(
 
 
     except subprocess.TimeoutExpired:
-
 
         log_msg(
 
@@ -1625,13 +1711,11 @@ def automatizar_web(
 
     except subprocess.CalledProcessError as e:
 
-
         err_out = (
 
             e.stderr
             or e.stdout
             or "Error desconocido"
-
         )
 
 
@@ -1660,7 +1744,6 @@ def automatizar_web(
 
 
     except Exception as e:
-
 
         log_msg(
 
@@ -1711,11 +1794,8 @@ def vista_login():
         "Acción:",
 
         [
-
             "Iniciar Sesión",
-
             "Registrar Usuario"
-
         ],
 
         horizontal=True
@@ -1724,7 +1804,6 @@ def vista_login():
 
 
     with st.form("auth_form"):
-
 
         usr_input = st.text_input(
 
@@ -1763,7 +1842,6 @@ def vista_login():
 
         if opcion == "Registrar Usuario":
 
-
             email_input = st.text_input(
 
                 "Correo electrónico",
@@ -1793,9 +1871,7 @@ def vista_login():
 
         if submit:
 
-
             if not usr_input or not pwd:
-
 
                 st.warning(
                     "Por favor complete usuario y contraseña."
@@ -1815,16 +1891,11 @@ def vista_login():
 
             if opcion == "Iniciar Sesión":
 
-
                 with st.spinner(
-
                     "Verificando credenciales..."
-
                 ):
 
-
                     try:
-
 
                         res = (
 
@@ -1843,11 +1914,8 @@ def vista_login():
                             )
 
                             .eq(
-
                                 "password",
-
                                 pwd
-
                             )
 
                             .execute()
@@ -1855,13 +1923,16 @@ def vista_login():
                         )
 
 
-                        registros = res.data or []
+                        registros = (
+                            res.data or []
+                        )
 
 
                         if registros:
 
-
-                            st.session_state.autenticado = True
+                            st.session_state.autenticado = (
+                                True
+                            )
 
                             st.session_state.usuario = (
                                 registros[0]["usuario"]
@@ -1872,24 +1943,19 @@ def vista_login():
                             )
 
 
-                            # Cookies
+                            # ---------------------------------
+                            # COOKIES
+                            # ---------------------------------
 
                             if recordar_credenciales:
 
-
                                 exp_date = (
-
                                     datetime.now()
-
-                                    +
-
-                                    timedelta(days=30)
-
+                                    + timedelta(days=30)
                                 )
 
 
                                 try:
-
 
                                     cookie_manager.set(
 
@@ -1916,14 +1982,12 @@ def vista_login():
 
                                     )
 
-
                                 except Exception:
 
                                     pass
 
 
                             else:
-
 
                                 try:
 
@@ -1935,6 +1999,12 @@ def vista_login():
 
                                     )
 
+                                except Exception:
+
+                                    pass
+
+
+                                try:
 
                                     cookie_manager.delete(
 
@@ -1943,7 +2013,6 @@ def vista_login():
                                         key="del_pwd"
 
                                     )
-
 
                                 except Exception:
 
@@ -1955,7 +2024,6 @@ def vista_login():
 
                         else:
 
-
                             st.error(
 
                                 "Usuario, email o contraseña incorrectos."
@@ -1964,7 +2032,6 @@ def vista_login():
 
 
                     except Exception as e:
-
 
                         st.error(
 
@@ -1979,41 +2046,40 @@ def vista_login():
 
             elif opcion == "Registrar Usuario":
 
-
                 email_final = (
 
                     email_input.strip().lower()
 
                     if email_input
 
-                    else f"{usuario_limpio.lower()}@chesserp.com"
+                    else (
+                        f"{usuario_limpio.lower()}"
+                        "@chesserp.com"
+                    )
 
                 )
 
 
                 with st.spinner(
-
                     "Registrando usuario..."
-
                 ):
-
 
                     try:
 
-
                         supabase.table(
-
                             "usuarios_app"
-
                         ).insert(
 
                             {
 
-                                "usuario": usuario_limpio,
+                                "usuario":
+                                    usuario_limpio,
 
-                                "password": pwd,
+                                "password":
+                                    pwd,
 
-                                "email": email_final
+                                "email":
+                                    email_final
 
                             }
 
@@ -2022,15 +2088,14 @@ def vista_login():
 
                         st.success(
 
-                            f"Usuario '{usuario_limpio}' registrado correctamente. "
-
+                            f"Usuario '{usuario_limpio}' "
+                            "registrado correctamente. "
                             "Ya puede iniciar sesión."
 
                         )
 
 
                     except Exception as e:
-
 
                         st.error(
 
@@ -2039,125 +2104,11 @@ def vista_login():
                         )
 
 
-    # =====================================================
-    # AUTOCOMPLETE
-    # =====================================================
-
-    js_autofill = """
-    data:text/html,
-    <script>
-
-        const doc = window.parent.document;
-
-        const inputs = doc.querySelectorAll('input');
-
-
-        inputs.forEach(function(input) {
-
-
-            if (
-
-                input.type === 'text'
-
-                &&
-
-                !input.getAttribute('data-configured')
-
-            ) {
-
-
-                input.setAttribute(
-
-                    'autocomplete',
-
-                    'username'
-
-                );
-
-
-                input.setAttribute(
-
-                    'name',
-
-                    'username'
-
-                );
-
-
-                input.setAttribute(
-
-                    'data-configured',
-
-                    'true'
-
-                );
-
-            }
-
-
-            if (
-
-                input.type === 'password'
-
-                &&
-
-                !input.getAttribute('data-configured')
-
-            ) {
-
-
-                input.setAttribute(
-
-                    'autocomplete',
-
-                    'current-password'
-
-                );
-
-
-                input.setAttribute(
-
-                    'name',
-
-                    'password'
-
-                );
-
-
-                input.setAttribute(
-
-                    'data-configured',
-
-                    'true'
-
-                );
-
-            }
-
-
-        });
-
-    </script>
-    """
-
-
-    st.iframe(
-
-        js_autofill,
-
-        height=1,
-
-        scrolling=False
-
-    )
-
-
 # =========================================================
 # PANTALLA PRINCIPAL
 # =========================================================
 
 def vista_principal():
-
 
     # =====================================================
     # SIDEBAR
@@ -2183,7 +2134,6 @@ def vista_principal():
         width="stretch"
 
     ):
-
 
         st.session_state.autenticado = False
 
@@ -2258,7 +2208,6 @@ def vista_principal():
 
     with col_proc:
 
-
         btn_procesar = st.button(
 
             "⚡ PROCESAR MENSAJE",
@@ -2269,7 +2218,6 @@ def vista_principal():
 
 
     with col_borr:
-
 
         st.button(
 
@@ -2284,9 +2232,7 @@ def vista_principal():
 
     if btn_procesar:
 
-
         if txt_mensaje.strip():
-
 
             extraer_y_actualizar(
                 txt_mensaje
@@ -2297,15 +2243,14 @@ def vista_principal():
                 txt_mensaje
             )
 
-
-            st.session_state.url_autorizada_lista = None
+            st.session_state.url_autorizada_lista = (
+                None
+            )
 
 
             st.rerun()
 
-
         else:
-
 
             st.warning(
 
@@ -2321,20 +2266,13 @@ def vista_principal():
     if (
 
         st.session_state.ultimo_mensaje_procesado
-        != txt_mensaje
-
-        and
-
-        st.session_state.ultimo_mensaje_procesado
         is None
 
     ):
 
-
         extraer_y_actualizar(
             txt_mensaje
         )
-
 
         st.session_state.ultimo_mensaje_procesado = (
             txt_mensaje
@@ -2363,7 +2301,6 @@ def vista_principal():
 
     with col1:
 
-
         dominio_final = st.text_input(
 
             "Servidor / Ruta URL:",
@@ -2383,7 +2320,6 @@ def vista_principal():
 
 
     with col2:
-
 
         ticket_final = st.text_input(
 
@@ -2419,7 +2355,6 @@ def vista_principal():
 
     ):
 
-
         motivo_ejecucion = (
 
             f"{ticket_final} - {motivo_base}"
@@ -2430,9 +2365,7 @@ def vista_principal():
 
         )
 
-
     else:
-
 
         motivo_ejecucion = motivo_base
 
@@ -2456,7 +2389,6 @@ def vista_principal():
 
 
     if st.session_state.url_autorizada_lista:
-
 
         st.link_button(
 
@@ -2486,7 +2418,6 @@ def vista_principal():
 
     ):
 
-
         sesion_previa = (
 
             buscar_autorizacion_reciente(
@@ -2513,24 +2444,18 @@ def vista_principal():
 
         ):
 
-
             sesion_activa_detectada = True
 
 
             st.warning(
 
                 f"⚠️ **SESIÓN ACTIVA DETECTADA:** "
-
-                f"Este entorno (`{dominio_final}`) ya fue autorizado hace "
-
+                f"Este entorno (`{dominio_final}`) "
+                f"ya fue autorizado hace "
                 f"**{sesion_previa['hace_minutos']} min** "
-
-                f"(a las {sesion_previa['fecha']}) por "
-
-                f"**{sesion_previa['usuario']}** "
-
+                f"(a las {sesion_previa['fecha']}) "
+                f"por **{sesion_previa['usuario']}** "
                 f"para el operador "
-
                 f"**{sesion_previa['operador']}**."
 
             )
@@ -2543,14 +2468,17 @@ def vista_principal():
 
             with col_reutilizar:
 
-
                 url_directa = (
 
                     dominio_final
 
-                    if dominio_final.startswith("http")
+                    if dominio_final.startswith(
+                        "http"
+                    )
 
-                    else f"https://{dominio_final}"
+                    else (
+                        f"https://{dominio_final}"
+                    )
 
                 )
 
@@ -2568,7 +2496,6 @@ def vista_principal():
 
             with col_forzar:
 
-
                 if st.button(
 
                     "⚡ Re-autorizar de todos modos",
@@ -2577,11 +2504,9 @@ def vista_principal():
 
                 ):
 
-
                     st.session_state[
                         "forzar_ejecucion"
                     ] = True
-
 
                     st.rerun()
 
@@ -2602,7 +2527,6 @@ def vista_principal():
 
 
     if st.session_state.log_ejecucion:
-
 
         placeholder_log.code(
 
@@ -2629,7 +2553,6 @@ def vista_principal():
 
     ):
 
-
         if (
 
             not dominio_final
@@ -2638,16 +2561,13 @@ def vista_principal():
 
         ):
 
-
             st.error(
 
                 "Por favor ingrese un Servidor / Ruta URL válido."
 
             )
 
-
         else:
-
 
             st.session_state[
                 "forzar_ejecucion"
@@ -2679,7 +2599,6 @@ def vista_principal():
 
             if exito:
 
-
                 st.session_state.url_autorizada_lista = (
 
                     url_resuelta
@@ -2688,9 +2607,13 @@ def vista_principal():
 
                         dominio_final
 
-                        if dominio_final.startswith("http")
+                        if dominio_final.startswith(
+                            "http"
+                        )
 
-                        else f"https://{dominio_final}"
+                        else (
+                            f"https://{dominio_final}"
+                        )
 
                     )
 
@@ -2699,14 +2622,11 @@ def vista_principal():
 
                 if not advertencia:
 
-
                     st.success(
                         msg
                     )
 
-
                 else:
-
 
                     st.warning(
                         msg
@@ -2718,9 +2638,9 @@ def vista_principal():
 
             else:
 
-
-                st.session_state.url_autorizada_lista = None
-
+                st.session_state.url_autorizada_lista = (
+                    None
+                )
 
                 st.error(
                     f"Error: {msg}"
@@ -2738,14 +2658,12 @@ def vista_principal():
         "Ver Historial de Autorizaciones"
     ):
 
-
         col_hist_title, col_hist_btn = (
             st.columns([3, 1])
         )
 
 
         with col_hist_title:
-
 
             st.caption(
 
@@ -2755,7 +2673,6 @@ def vista_principal():
 
 
         with col_hist_btn:
-
 
             if st.button(
 
@@ -2767,12 +2684,10 @@ def vista_principal():
 
             ):
 
-
                 st.rerun()
 
 
         try:
-
 
             res = (
 
@@ -2803,7 +2718,6 @@ def vista_principal():
 
             if registros:
 
-
                 tz_local = ZoneInfo(
 
                     "America/Argentina/Buenos_Aires"
@@ -2816,7 +2730,6 @@ def vista_principal():
 
                 for registro in registros:
 
-
                     fecha_raw = registro.get(
 
                         "created_at",
@@ -2827,7 +2740,6 @@ def vista_principal():
 
 
                     try:
-
 
                         fecha_dt = (
 
@@ -2872,18 +2784,18 @@ def vista_principal():
 
                     except Exception:
 
-
-                        fecha_fmt = fecha_raw[:16]
+                        fecha_fmt = (
+                            fecha_raw[:16]
+                            if fecha_raw
+                            else "-"
+                        )
 
 
                     motivo_completo = (
 
                         registro.get(
-
                             "motivo",
-
                             ""
-
                         )
 
                         or "-"
@@ -2902,11 +2814,8 @@ def vista_principal():
 
                     if match_ticket:
 
-
                         id_ticket = (
-
                             match_ticket.group(1)
-
                         )
 
 
@@ -2934,42 +2843,39 @@ def vista_principal():
 
                     else:
 
-
                         id_ticket = "-"
 
-                        motivo_limpio = motivo_completo
+                        motivo_limpio = (
+                            motivo_completo
+                        )
 
 
                     datos_tabla.append(
 
                         {
 
-                            "Fecha / Hora": fecha_fmt,
+                            "Fecha / Hora":
+                                fecha_fmt,
 
                             "Operador Autorizado":
-
                                 registro.get(
                                     "operador",
                                     "-"
                                 ),
 
                             "Id Ticket":
-
                                 id_ticket,
 
                             "Motivo":
-
                                 motivo_limpio,
 
                             "Usuario Aprobador ERP":
-
                                 registro.get(
                                     "usuario",
                                     "-"
                                 ),
 
                             "Servidor / Ruta":
-
                                 registro.get(
                                     "dominio_ruta",
                                     "-"
@@ -3062,14 +2968,12 @@ def vista_principal():
 
             else:
 
-
                 st.info(
                     "Aún no hay registros en el historial."
                 )
 
 
         except Exception as e:
-
 
             st.warning(
 
