@@ -5,36 +5,85 @@ import re
 import sys
 import json
 import subprocess
+import shutil
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from supabase import create_client, Client
 
 
-# =========================================================
+# ============================================================
 # CONFIGURACIÓN
-# =========================================================
+# ============================================================
 
 st.set_page_config(
     page_title="Gestor de Autorización CHESS ERP",
-    page_icon="🔑",
-    layout="centered"
+    page_icon="🔐",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
+
+
+# ============================================================
+# CSS
+# ============================================================
 
 st.markdown(
     """
     <style>
         .main {
-            background-color: #f8fafc;
+            padding-top: 1rem;
         }
 
-        .stButton > button {
+        .block-container {
+            padding-top: 1.5rem;
+            padding-bottom: 2rem;
+        }
+
+        div[data-testid="stMetric"] {
+            background-color: #f8f9fa;
+            border-radius: 10px;
+            padding: 10px;
+        }
+
+        .titulo-principal {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 0.2rem;
+        }
+
+        .subtitulo {
+            color: #666;
+            margin-bottom: 1.5rem;
+        }
+
+        .estado-ok {
+            padding: 12px;
             border-radius: 8px;
-            font-weight: bold;
+            background-color: #e8f5e9;
+            border: 1px solid #81c784;
         }
 
-        .stTextArea textarea {
-            font-family: monospace;
+        .estado-error {
+            padding: 12px;
+            border-radius: 8px;
+            background-color: #ffebee;
+            border: 1px solid #e57373;
+        }
+
+        .estado-warning {
+            padding: 12px;
+            border-radius: 8px;
+            background-color: #fff8e1;
+            border: 1px solid #ffca28;
+        }
+
+        .info-box {
+            padding: 14px;
+            border-radius: 8px;
+            background-color: #eef4ff;
+            border: 1px solid #90caf9;
+            margin-bottom: 10px;
         }
     </style>
     """,
@@ -42,2949 +91,2057 @@ st.markdown(
 )
 
 
-# =========================================================
+# ============================================================
 # SUPABASE
-# =========================================================
+# ============================================================
 
 @st.cache_resource
-def init_supabase() -> Client:
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_KEY"]
-    return create_client(url, key)
+def inicializar_supabase():
+    try:
+        url = st.secrets["SUPABASE_URL"]
+        key = st.secrets["SUPABASE_KEY"]
+
+        supabase: Client = create_client(url, key)
+
+        return supabase
+
+    except Exception as e:
+        st.error(f"Error conectando con Supabase: {e}")
+        return None
 
 
-supabase = init_supabase()
+supabase = inicializar_supabase()
 
 
-# =========================================================
+# ============================================================
 # COOKIE MANAGER
-# =========================================================
+# ============================================================
 
-def get_cookie_manager():
-    return stx.CookieManager()
-
-
-cookie_manager = get_cookie_manager()
+cookie_manager = stx.CookieManager(
+    key="chess_cookie_manager"
+)
 
 
-# =========================================================
-# ESTADOS DE SESIÓN
-# =========================================================
+# ============================================================
+# SESSION STATE
+# ============================================================
 
-ESTADOS_DEFAULT = {
+valores_iniciales = {
     "autenticado": False,
     "usuario": "",
     "password": "",
+    "email": "",
     "log_ejecucion": [],
+    "ultimo_mensaje_procesado": "",
+    "url_autorizada_lista": False,
+    "forzar_ejecucion": False,
 
-    "txt_mensaje": (
-        "Roy Topping, 14 min\n"
-        "URL: https://codenoa.chesserp.com/AR467\n"
-        "Ticket: #512918\n"
-        "Motivo: Gerente que no aparece"
-    ),
-
-    "in_dom": "No detectado",
-    "in_op": "No detectado",
+    "in_dom": "",
+    "in_op": "",
     "in_tick": "",
     "in_mot": "",
 
-    "ultimo_mensaje_procesado": None,
-    "url_autorizada_lista": None,
-    "forzar_ejecucion": False
+    "mensaje": """
+Roy Topping, 14 min
+URL: https://codenoa.chesserp.com/AR467
+Ticket: #512918
+Motivo: Gerente que no aparece
+""".strip()
 }
 
-
-for clave, valor in ESTADOS_DEFAULT.items():
+for clave, valor in valores_iniciales.items():
     if clave not in st.session_state:
         st.session_state[clave] = valor
 
 
-# =========================================================
-# SESIÓN PERSISTENTE
-# =========================================================
+# ============================================================
+# UTILIDADES
+# ============================================================
 
-session_usr = cookie_manager.get(
-    cookie="chess_session_usr"
-)
-
-session_pwd = cookie_manager.get(
-    cookie="chess_session_pwd"
-)
-
-
-if (
-    session_usr
-    and session_pwd
-    and not st.session_state.autenticado
-):
-
-    try:
-
-        res = (
-            supabase
-            .table("usuarios_app")
-            .select("*")
-            .or_(
-                f"usuario.eq.{session_usr},"
-                f"email.eq.{session_usr.lower()}"
-            )
-            .eq(
-                "password",
-                session_pwd
-            )
-            .execute()
-        )
-
-        registros = res.data or []
-
-        if registros:
-
-            st.session_state.autenticado = True
-
-            st.session_state.usuario = (
-                registros[0]["usuario"]
-            )
-
-            st.session_state.password = (
-                registros[0]["password"]
-            )
-
-    except Exception:
-        pass
-
-
-# =========================================================
-# LOG
-# =========================================================
-
-def log_msg(
-    msg,
-    placeholder_log=None,
-    estado="INFO"
-):
-
-    badges = {
-        "OK": "[OK]",
-        "ERROR": "[ERROR]",
-        "WARN": "[WARN]",
-        "INFO": "[INFO]"
-    }
-
-    badge = badges.get(
-        estado,
-        "[INFO]"
-    )
-
-    hora = datetime.now().strftime(
-        "%H:%M:%S"
-    )
-
-    linea = (
-        f"[{hora}] {badge} {msg}"
-    )
-
-    st.session_state.log_ejecucion.append(
-        linea
-    )
-
-    if placeholder_log:
-
-        placeholder_log.code(
-            "\n".join(
-                st.session_state.log_ejecucion
-            ),
-            language="bash"
-        )
-
-
-# =========================================================
-# HISTORIAL SUPABASE
-# =========================================================
-
-def registrar_en_historial(
-    usuario,
-    dominio_ruta,
-    operador,
-    motivo_final
-):
-
-    try:
-
-        supabase.table(
-            "historial_autorizaciones"
-        ).insert(
-            {
-                "usuario": usuario,
-                "dominio_ruta": dominio_ruta,
-                "operador": operador,
-                "motivo": motivo_final
-            }
-        ).execute()
-
-    except Exception as e:
-
-        log_msg(
-            f"Error al guardar historial: {e}",
-            estado="WARN"
-        )
-
-
-# =========================================================
-# PROCESAMIENTO DEL MENSAJE
-# =========================================================
-
-def extraer_y_actualizar(
-    texto_mensaje
-):
-
-    usuario_actual = (
-        st.session_state.usuario
-    )
-
-    lineas = [
-        linea.strip()
-        for linea in texto_mensaje.split("\n")
-        if linea.strip()
-    ]
-
-    primera_linea = (
-        lineas[0]
-        if lineas
-        else ""
+def ahora_argentina():
+    return datetime.now(
+        ZoneInfo("America/Argentina/Buenos_Aires")
     )
 
 
-    # -----------------------------------------------------
-    # OPERADOR
-    # -----------------------------------------------------
+def agregar_log(mensaje, nivel="INFO"):
+    hora = ahora_argentina().strftime("%H:%M:%S")
 
-    if (
-        primera_linea.lower().startswith("url:")
-        or primera_linea.lower().startswith("http")
-    ):
+    registro = f"[{hora}] [{nivel}] {mensaje}"
 
-        operador = (
-            usuario_actual
-            or "No detectado"
-        )
-
-    else:
-
-        if "," in primera_linea:
-
-            raw_op = (
-                primera_linea
-                .split(",")[0]
-                .strip()
-            )
-
-        else:
-
-            raw_op = re.split(
-                r"\d+\s*min|Ahora|Ayer|\d{1,2}:\d{2}",
-                primera_linea,
-                flags=re.IGNORECASE
-            )[0].strip()
-
-        operador = (
-            raw_op
-            if raw_op
-            else "No detectado"
-        )
+    st.session_state.log_ejecucion.append(registro)
 
 
-    # -----------------------------------------------------
-    # URL
-    # -----------------------------------------------------
-
-    pattern_url = (
-        r"(?:https?://)?"
-        r"(?:"
-        r"[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
-        r"|"
-        r"\d{1,3}(?:\.\d{1,3}){3}"
-        r")"
-        r"(?::\d+)?"
-        r"(?:/[^\s\n]*)?"
-    )
-
-    urls_encontradas = re.findall(
-        pattern_url,
-        texto_mensaje
-    )
+def limpiar_log():
+    st.session_state.log_ejecucion = []
 
 
-    if urls_encontradas:
+def normalizar_url(url):
+    if not url:
+        return ""
 
-        dominio_ruta = (
-            urls_encontradas[0]
-            .strip()
-            .rstrip("/")
-        )
+    url = url.strip()
 
-    else:
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
 
-        dominio_ruta = "No detectado"
-
-
-    # -----------------------------------------------------
-    # TICKET
-    # -----------------------------------------------------
-
-    match_ticket = re.search(
-        r"(#\d+)",
-        texto_mensaje
-    )
-
-    ticket = (
-        match_ticket.group(1)
-        if match_ticket
-        else ""
-    )
+    return url.rstrip("/")
 
 
-    # -----------------------------------------------------
-    # MOTIVO
-    # -----------------------------------------------------
+def obtener_dominio(url):
+    url = normalizar_url(url)
 
-    match_motivo = re.search(
-        r"motivo:\s*(.*)",
-        texto_mensaje,
+    match = re.search(
+        r"https?://([^/]+)",
+        url,
         re.IGNORECASE
     )
 
+    if match:
+        return match.group(1).lower()
 
-    if match_motivo:
-
-        motivo_raw = (
-            match_motivo
-            .group(1)
-            .strip()
-        )
-
-    else:
-
-        resto = []
-
-        for linea in lineas:
-
-            linea_lower = linea.lower()
-
-            if (
-                linea == primera_linea
-                or linea_lower.startswith("url:")
-                or "http://" in linea_lower
-                or "https://" in linea_lower
-                or "chesserp" in linea_lower
-                or re.search(
-                    r"\.[a-zA-Z]{2,}",
-                    linea
-                )
-                or re.search(
-                    r"^#\d+$",
-                    linea
-                )
-            ):
-                continue
-
-            resto.append(linea)
-
-        motivo_raw = (
-            " ".join(resto)
-            if resto
-            else ""
-        )
+    return ""
 
 
-    # -----------------------------------------------------
-    # LIMPIEZA FINAL DEL MOTIVO
-    # -----------------------------------------------------
+# ============================================================
+# SUPABASE - HISTORIAL
+# ============================================================
 
-    motivo_raw = re.sub(
-        r"(?:https?://)?\S+\.\S+",
-        "",
-        motivo_raw
-    ).strip()
-
-
-    # -----------------------------------------------------
-    # ACTUALIZAR ESTADOS
-    # -----------------------------------------------------
-
-    st.session_state.in_dom = (
-        dominio_ruta
-    )
-
-    st.session_state.in_op = (
-        operador
-    )
-
-    st.session_state.in_tick = (
-        ticket
-    )
-
-    st.session_state.in_mot = (
-        motivo_raw
-    )
-
-
-# =========================================================
-# BORRAR DATOS
-# =========================================================
-
-def borrar_todo():
-
-    st.session_state.txt_mensaje = ""
-
-    st.session_state.in_dom = (
-        "No detectado"
-    )
-
-    st.session_state.in_op = (
-        "No detectado"
-    )
-
-    st.session_state.in_tick = ""
-    st.session_state.in_mot = ""
-
-    st.session_state.log_ejecucion = []
-
-    st.session_state.ultimo_mensaje_procesado = (
-        None
-    )
-
-    st.session_state.url_autorizada_lista = (
-        None
-    )
-
-    st.session_state.forzar_ejecucion = (
-        False
-    )
-
-
-# =========================================================
-# VERIFICAR AUTORIZACIÓN RECIENTE
-# =========================================================
-
-def buscar_autorizacion_reciente(
-    dominio_ruta,
-    minutos=10
+def registrar_en_historial(
+    operador,
+    url,
+    ticket,
+    motivo,
+    usuario_app=None
 ):
+    if supabase is None:
+        return False
 
     try:
+        datos = {
+            "operador": operador,
+            "url": url,
+            "ticket": ticket,
+            "motivo": motivo,
+            "usuario_app": usuario_app or st.session_state.get(
+                "usuario",
+                ""
+            ),
+            "fecha_hora": ahora_argentina().isoformat()
+        }
 
-        res = (
+        resultado = (
             supabase
             .table("historial_autorizaciones")
-            .select(
-                "created_at, usuario, operador, dominio_ruta"
-            )
-            .order(
-                "created_at",
-                desc=True
-            )
+            .insert(datos)
+            .execute()
+        )
+
+        return bool(resultado.data)
+
+    except Exception as e:
+        agregar_log(
+            f"No se pudo registrar historial: {e}",
+            "WARNING"
+        )
+        return False
+
+
+def buscar_autorizacion_reciente(url):
+    """
+    Busca una autorización reciente sobre el mismo dominio.
+    Se utiliza para evitar autorizaciones duplicadas accidentales.
+    """
+
+    if supabase is None:
+        return None
+
+    try:
+        resultado = (
+            supabase
+            .table("historial_autorizaciones")
+            .select("*")
+            .order("fecha_hora", desc=True)
             .limit(20)
             .execute()
         )
 
-        registros = res.data or []
+        if not resultado.data:
+            return None
 
-        tz_local = ZoneInfo(
-            "America/Argentina/Buenos_Aires"
-        )
+        dominio_actual = obtener_dominio(url)
 
-        ahora = datetime.now(
-            tz_local
-        )
+        ahora = ahora_argentina()
 
+        for registro in resultado.data:
 
-        def limpiar_dominio(valor):
+            url_registro = registro.get("url", "")
+            dominio_registro = obtener_dominio(url_registro)
 
-            return (
-                (valor or "")
-                .lower()
-                .replace(
-                    "https://",
-                    ""
-                )
-                .replace(
-                    "http://",
-                    ""
-                )
-                .strip()
-                .rstrip("/")
-            )
+            if not dominio_actual:
+                continue
 
+            if dominio_actual != dominio_registro:
+                continue
 
-        dom_limpio = limpiar_dominio(
-            dominio_ruta
-        )
+            fecha_texto = registro.get("fecha_hora")
 
+            if not fecha_texto:
+                continue
 
-        for registro in registros:
-
-            dom_reg = limpiar_dominio(
-                registro.get(
-                    "dominio_ruta"
-                )
-            )
-
-
-            if (
-                dom_limpio in dom_reg
-                or dom_reg in dom_limpio
-            ):
-
-                fecha_raw = registro.get(
-                    "created_at",
-                    ""
+            try:
+                fecha_registro = datetime.fromisoformat(
+                    fecha_texto.replace("Z", "+00:00")
                 )
 
-                if not fecha_raw:
-                    continue
-
-                fecha_dt = (
-                    datetime
-                    .fromisoformat(
-                        fecha_raw.replace(
-                            "Z",
-                            "+00:00"
+                if fecha_registro.tzinfo is None:
+                    fecha_registro = fecha_registro.replace(
+                        tzinfo=ZoneInfo(
+                            "America/Argentina/Buenos_Aires"
                         )
                     )
-                    .astimezone(
-                        tz_local
-                    )
-                )
 
-                diferencia_minutos = (
-                    ahora - fecha_dt
-                ).total_seconds() / 60
+                diferencia = ahora - fecha_registro
 
+                if diferencia <= timedelta(minutes=10):
+                    return registro
 
-                if (
-                    0 <= diferencia_minutos <= minutos
-                ):
+            except Exception:
+                continue
 
-                    return {
-
-                        "activa": True,
-
-                        "hace_minutos": int(
-                            diferencia_minutos
-                        ),
-
-                        "usuario": registro.get(
-                            "usuario",
-                            "Desconocido"
-                        ),
-
-                        "operador": registro.get(
-                            "operador",
-                            "Desconocido"
-                        ),
-
-                        "fecha": fecha_dt.strftime(
-                            "%H:%M:%S"
-                        )
-
-                    }
-
+        return None
 
     except Exception as e:
+        agregar_log(
+            f"Error consultando historial: {e}",
+            "WARNING"
+        )
+        return None
 
-        print(
-            f"Error verificando autorización: {e}"
+
+# ============================================================
+# EXTRACCIÓN DEL MENSAJE
+# ============================================================
+
+def extraer_y_actualizar(mensaje):
+    """
+    Extrae:
+      - Operador
+      - URL
+      - Ticket
+      - Motivo
+    """
+
+    if not mensaje:
+        return False
+
+    texto = mensaje.strip()
+
+    # --------------------------------------------------------
+    # OPERADOR
+    # --------------------------------------------------------
+
+    operador = ""
+
+    patrones_operador = [
+        r"^\s*([^,\n]+),\s*\d+\s*(?:min|minutos|mins?)?",
+        r"^\s*([^\n]+),\s*\d+\s*(?:min|minutos|mins?)?"
+    ]
+
+    for patron in patrones_operador:
+        match = re.search(
+            patron,
+            texto,
+            re.IGNORECASE
         )
 
+        if match:
+            operador = match.group(1).strip()
+            break
 
-    return {
-        "activa": False
-    }
+    # --------------------------------------------------------
+    # URL
+    # --------------------------------------------------------
+
+    url = ""
+
+    match_url = re.search(
+        r"(https?://[^\s]+)",
+        texto,
+        re.IGNORECASE
+    )
+
+    if match_url:
+        url = match_url.group(1).strip()
+
+        # Quitar caracteres finales habituales
+        url = url.rstrip(".,;")
+
+    # --------------------------------------------------------
+    # TICKET
+    # --------------------------------------------------------
+
+    ticket = ""
+
+    match_ticket = re.search(
+        r"Ticket\s*:\s*#?\s*(\d+)",
+        texto,
+        re.IGNORECASE
+    )
+
+    if match_ticket:
+        ticket = f"#{match_ticket.group(1)}"
+
+    # --------------------------------------------------------
+    # MOTIVO
+    # --------------------------------------------------------
+
+    motivo = ""
+
+    match_motivo = re.search(
+        r"Motivo\s*:\s*(.+?)(?=\n|$)",
+        texto,
+        re.IGNORECASE
+    )
+
+    if match_motivo:
+        motivo = match_motivo.group(1).strip()
+
+    # --------------------------------------------------------
+    # ACTUALIZAR SESSION STATE
+    # --------------------------------------------------------
+
+    st.session_state.in_dom = operador
+    st.session_state.in_op = operador
+    st.session_state.in_tick = ticket
+    st.session_state.in_mot = motivo
+
+    st.session_state.ultimo_mensaje_procesado = texto
+
+    st.session_state.url_autorizada_lista = bool(
+        url and operador
+    )
+
+    return True
 
 
-# =========================================================
-# INSTALAR / VERIFICAR CHROMIUM
-# =========================================================
+# ============================================================
+# DETECCIÓN DE NAVEGADORES
+# ============================================================
+
+def detectar_navegadores_sistema():
+    """
+    Busca navegadores instalados en el sistema.
+
+    Orden de prioridad:
+        1. chromium
+        2. chromium-browser
+        3. google-chrome
+        4. google-chrome-stable
+    """
+
+    candidatos = [
+        "chromium",
+        "chromium-browser",
+        "google-chrome",
+        "google-chrome-stable",
+    ]
+
+    encontrados = []
+
+    for nombre in candidatos:
+
+        ruta = shutil.which(nombre)
+
+        if ruta:
+            encontrados.append({
+                "nombre": nombre,
+                "ruta": ruta
+            })
+
+    return encontrados
+
+
+def obtener_version_navegador(ruta):
+    """
+    Intenta obtener la versión del navegador del sistema.
+    """
+
+    try:
+        resultado = subprocess.run(
+            [ruta, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+
+        salida = (
+            resultado.stdout.strip()
+            or resultado.stderr.strip()
+        )
+
+        return salida
+
+    except Exception as e:
+        return f"No se pudo obtener versión: {e}"
+
+
+# ============================================================
+# PLAYWRIGHT - PREPARAR CHROMIUM
+# ============================================================
 
 @st.cache_resource
 def preparar_chromium():
 
-    try:
-
-        resultado = subprocess.run(
-
-            [
-                sys.executable,
-                "-m",
-                "playwright",
-                "install",
-                "chromium"
-            ],
-
-            capture_output=True,
-
-            text=True,
-
-            timeout=180
-
-        )
-
-
-        if resultado.returncode == 0:
-
-            return True, ""
-
-
-        return (
-            False,
-            resultado.stderr
-            or resultado.stdout
-            or "Error desconocido"
-        )
-
-
-    except Exception as e:
-
-        return (
-            False,
-            str(e)
-        )
-
-
-# =========================================================
-# WORKER PLAYWRIGHT
-# =========================================================
-
-WORKER_PATH = "/tmp/runner_playwright.py"
-
-
-def asegurar_script_worker():
-
-    script_code = r'''
-import sys
-import json
-import re
-
-from playwright.sync_api import sync_playwright
-
-
-def run():
-
-    if len(sys.argv) < 2:
-
-        print(
-            json.dumps(
-                {
-                    "success": False,
-                    "error": "No se recibieron parámetros"
-                }
-            )
-        )
-
-        return
-
-
-    params = json.loads(
-        sys.argv[1]
+    agregar_log(
+        "Verificando disponibilidad de Chromium..."
     )
 
+    # --------------------------------------------------------
+    # PRIMERO: NAVEGADORES DEL SISTEMA
+    # --------------------------------------------------------
 
-    dominio_ruta = params[
-        "dominio_ruta"
-    ]
+    navegadores = detectar_navegadores_sistema()
 
-    usuario = params[
-        "usuario"
-    ]
+    if navegadores:
 
-    password = params[
-        "password"
-    ]
+        for navegador in navegadores:
 
-    operador = params[
-        "operador"
-    ]
+            version = obtener_version_navegador(
+                navegador["ruta"]
+            )
 
-    motivo_final = params[
-        "motivo_final"
-    ]
+            agregar_log(
+                f"Navegador del sistema encontrado: "
+                f"{navegador['nombre']} "
+                f"({navegador['ruta']}) - {version}",
+                "OK"
+            )
 
-    texto_mensaje = params[
-        "texto_mensaje"
-    ]
-
-
-    # =====================================================
-    # CONSTRUIR URL
-    # =====================================================
-
-    if (
-        dominio_ruta.startswith("http://")
-        or dominio_ruta.startswith("https://")
-    ):
-
-        url_base = dominio_ruta
+        agregar_log(
+            "Se priorizará el navegador del sistema.",
+            "OK"
+        )
 
     else:
 
-        contiene_puerto = re.search(
-            r":\d+",
-            dominio_ruta
+        agregar_log(
+            "No se encontró Chromium/Chrome del sistema."
         )
 
-        es_ip = re.search(
-            r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}",
-            dominio_ruta
-        )
+        # ----------------------------------------------------
+        # SEGUNDO: CHROMIUM DE PLAYWRIGHT
+        # ----------------------------------------------------
 
+        try:
 
-        if (
-            "http://" in texto_mensaje.lower()
-            or contiene_puerto
-            or es_ip
-        ):
-
-            url_base = (
-                f"http://{dominio_ruta}"
+            resultado = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "playwright",
+                    "install",
+                    "chromium"
+                ],
+                capture_output=True,
+                text=True,
+                timeout=180
             )
 
-        else:
+            if resultado.returncode == 0:
 
-            url_base = (
-                f"https://{dominio_ruta}"
+                agregar_log(
+                    "Chromium de Playwright disponible.",
+                    "OK"
+                )
+
+            else:
+
+                error = (
+                    resultado.stderr
+                    or resultado.stdout
+                    or "Error desconocido"
+                )
+
+                agregar_log(
+                    f"Error instalando Chromium de Playwright: "
+                    f"{error}",
+                    "ERROR"
+                )
+
+                return False, navegadores
+
+        except Exception as e:
+
+            agregar_log(
+                f"Error preparando Chromium: {e}",
+                "ERROR"
             )
 
+            return False, navegadores
 
-    # =====================================================
-    # AUTOMATIZACIÓN
-    # =====================================================
+    return True, navegadores
 
-    browser = None
-    context = None
+
+# ============================================================
+# WORKER PLAYWRIGHT
+# ============================================================
+
+def crear_worker_playwright():
+
+    worker_code = r'''
+import sys
+import json
+import shutil
+import traceback
+from playwright.sync_api import sync_playwright
+
+
+def detectar_navegadores():
+
+    candidatos = [
+        "chromium",
+        "chromium-browser",
+        "google-chrome",
+        "google-chrome-stable",
+    ]
+
+    encontrados = []
+
+    for nombre in candidatos:
+
+        ruta = shutil.which(nombre)
+
+        if ruta:
+            encontrados.append({
+                "nombre": nombre,
+                "ruta": ruta
+            })
+
+    return encontrados
+
+
+def obtener_version(ruta):
+
+    import subprocess
 
     try:
 
-        with sync_playwright() as p:
-
-            browser = p.chromium.launch(
-
-                headless=True,
-
-                args=[
-
-                    "--no-sandbox",
-
-                    "--disable-setuid-sandbox",
-
-                    "--disable-dev-shm-usage",
-
-                    "--disable-gpu",
-
-                    "--no-first-run",
-
-                    "--no-zygote",
-
-                    "--ignore-certificate-errors"
-
-                ]
-
-            )
-
-
-            context = browser.new_context(
-
-                ignore_https_errors=True,
-
-                viewport={
-                    "width": 1920,
-                    "height": 1080
-                }
-
-            )
-
-
-            page = context.new_page()
-
-
-            # -------------------------------------------------
-            # ABRIR URL BASE
-            # -------------------------------------------------
-
-            page.goto(
-                url_base,
-                timeout=30000,
-                wait_until="domcontentloaded"
-            )
-
-            page.wait_for_timeout(
-                2000
-            )
-
-
-            url_actual = (
-                page.url
-                .split("#")[0]
-                .rstrip("/")
-            )
-
-
-            url_admin = (
-                f"{url_actual}/#/admin"
-            )
-
-
-            # -------------------------------------------------
-            # ADMIN
-            # -------------------------------------------------
-
-            page.goto(
-
-                url_admin,
-
-                timeout=30000,
-
-                wait_until="domcontentloaded"
-
-            )
-
-
-            page.wait_for_selector(
-
-                "#usuario, input[formcontrolname='usuario']",
-
-                timeout=20000
-
-            )
-
-
-            # =================================================
-            # SCRIPT PARA COMPLETAR CAMPOS
-            # =================================================
-
-            script_inyect = """
-            ([selector, val]) => {
-
-                var el =
-                    document.getElementById(selector)
-                    ||
-                    document.querySelector(
-                        '[formcontrolname="' + selector + '"]'
-                    )
-                    ||
-                    document.querySelector(
-                        '[name="' + selector + '"]'
-                    );
-
-
-                if (!el) {
-
-                    var inputs = Array.from(
-                        document.querySelectorAll(
-                            'input:not([type="hidden"]):not([type="checkbox"]):not([type="button"]), textarea'
-                        )
-                    );
-
-
-                    if (
-                        selector.toLowerCase()
-                        .includes('usuario')
-                    ) {
-
-                        el = inputs[0];
-
-                    }
-
-
-                    else if (
-                        selector.toLowerCase()
-                        .includes('contrasenia')
-                        ||
-                        selector.toLowerCase()
-                        .includes('password')
-                    ) {
-
-                        el =
-                            document.querySelector(
-                                'input[type="password"]'
-                            )
-                            ||
-                            inputs[1];
-
-                    }
-
-
-                    else if (
-                        selector.toLowerCase()
-                        .includes('operador')
-                    ) {
-
-                        el =
-                            inputs.find(
-                                i =>
-                                    (i.placeholder || '')
-                                    .toLowerCase()
-                                    .includes('operador')
-                                    ||
-                                    (i.id || '')
-                                    .toLowerCase()
-                                    .includes('operador')
-                            )
-                            ||
-                            inputs[2];
-
-                    }
-
-
-                    else if (
-                        selector.toLowerCase()
-                        .includes('detalle')
-                        ||
-                        selector.toLowerCase()
-                        .includes('motivo')
-                    ) {
-
-                        el =
-                            document.querySelector(
-                                'textarea'
-                            )
-                            ||
-                            inputs.find(
-                                i =>
-                                    (i.placeholder || '')
-                                    .toLowerCase()
-                                    .includes('motivo')
-                                    ||
-                                    (i.id || '')
-                                    .toLowerCase()
-                                    .includes('motivo')
-                            )
-                            ||
-                            inputs[
-                                inputs.length - 1
-                            ];
-
-                    }
-
-                }
-
-
-                if (el) {
-
-                    el.removeAttribute(
-                        'disabled'
-                    );
-
-                    el.removeAttribute(
-                        'readonly'
-                    );
-
-                    el.focus();
-
-                    el.value = val;
-
-
-                    el.dispatchEvent(
-                        new Event(
-                            'input',
-                            {
-                                bubbles: true
-                            }
-                        )
-                    );
-
-
-                    el.dispatchEvent(
-                        new Event(
-                            'change',
-                            {
-                                bubbles: true
-                            }
-                        )
-                    );
-
-
-                    el.dispatchEvent(
-                        new Event(
-                            'blur',
-                            {
-                                bubbles: true
-                            }
-                        )
-                    );
-
-
-                    return true;
-
-                }
-
-
-                return false;
-
-            }
-            """
-
-
-            # -------------------------------------------------
-            # COMPLETAR USUARIO
-            # -------------------------------------------------
-
-            page.evaluate(
-
-                script_inyect,
-
-                [
-                    "usuario",
-                    usuario
-                ]
-
-            )
-
-            page.wait_for_timeout(
-                400
-            )
-
-
-            # -------------------------------------------------
-            # COMPLETAR CONTRASEÑA
-            # -------------------------------------------------
-
-            page.evaluate(
-
-                script_inyect,
-
-                [
-                    "contrasenia",
-                    password
-                ]
-
-            )
-
-            page.wait_for_timeout(
-                800
-            )
-
-
-            # -------------------------------------------------
-            # COMPLETAR OPERADOR
-            # -------------------------------------------------
-
-            page.evaluate(
-
-                script_inyect,
-
-                [
-                    "operadorAutorizado",
-                    operador
-                ]
-
-            )
-
-            page.wait_for_timeout(
-                400
-            )
-
-
-            # -------------------------------------------------
-            # COMPLETAR MOTIVO
-            # -------------------------------------------------
-
-            page.evaluate(
-
-                script_inyect,
-
-                [
-                    "detalle",
-                    motivo_final
-                ]
-
-            )
-
-            page.wait_for_timeout(
-                800
-            )
-
-
-            # -------------------------------------------------
-            # PERMITIR ACCESO
-            # -------------------------------------------------
-
-            resultado_permitir = page.evaluate(
-
-                """
-                () => {
-
-                    var btn =
-                        document.querySelector(
-                            'button[label="PERMITIR ACCESO"]'
-                        )
-                        ||
-                        document.querySelector(
-                            'button.login-button'
-                        )
-                        ||
-                        Array.from(
-                            document.querySelectorAll(
-                                'button'
-                            )
-                        ).find(
-                            b =>
-                                (b.innerText || '')
-                                .toUpperCase()
-                                .includes(
-                                    'PERMITIR'
-                                )
-                        );
-
-
-                    if (btn) {
-
-                        btn.removeAttribute(
-                            'disabled'
-                        );
-
-                        btn.classList.remove(
-                            'p-disabled'
-                        );
-
-                        btn.click();
-
-                        return true;
-
-                    }
-
-
-                    return false;
-
-                }
-                """
-
-            )
-
-
-            if not resultado_permitir:
-
-                raise Exception(
-                    "No se encontró el botón PERMITIR ACCESO."
-                )
-
-
-            page.wait_for_timeout(
-                3000
-            )
-
-
-            # -------------------------------------------------
-            # ESPERAR LOGIN
-            # -------------------------------------------------
-
-            page.wait_for_selector(
-
-                "#usuario, input[formcontrolname='usuario']",
-
-                timeout=15000
-
-            )
-
-
-            # -------------------------------------------------
-            # COMPLETAR USUARIO NUEVAMENTE
-            # -------------------------------------------------
-
-            page.evaluate(
-
-                script_inyect,
-
-                [
-                    "usuario",
-                    usuario
-                ]
-
-            )
-
-            page.wait_for_timeout(
-                400
-            )
-
-
-            # -------------------------------------------------
-            # COMPLETAR CONTRASEÑA NUEVAMENTE
-            # -------------------------------------------------
-
-            page.evaluate(
-
-                script_inyect,
-
-                [
-                    "contrasenia",
-                    password
-                ]
-
-            )
-
-            page.wait_for_timeout(
-                800
-            )
-
-
-            # -------------------------------------------------
-            # LOGIN
-            # -------------------------------------------------
-
-            resultado_login = page.evaluate(
-
-                """
-                () => {
-
-                    var inputPass =
-                        document.getElementById(
-                            'contrasenia'
-                        )
-                        ||
-                        document.querySelector(
-                            'input[type="password"]'
-                        );
-
-
-                    var form =
-                        inputPass
-                        ? inputPass.closest(
-                            'form'
-                        )
-                        : null;
-
-
-                    if (form) {
-
-                        form.dispatchEvent(
-                            new Event(
-                                'submit',
-                                {
-                                    cancelable: true,
-                                    bubbles: true
-                                }
-                            )
-                        );
-
-                        return true;
-
-                    }
-
-
-                    var btnLogin =
-                        document.querySelector(
-                            'button[label="INICIAR SESIÓN"]'
-                        )
-                        ||
-                        document.querySelector(
-                            'button.login-button'
-                        )
-                        ||
-                        Array.from(
-                            document.querySelectorAll(
-                                'button'
-                            )
-                        ).find(
-                            b =>
-                                (b.innerText || '')
-                                .toUpperCase()
-                                .includes(
-                                    'INICIAR'
-                                )
-                        );
-
-
-                    if (btnLogin) {
-
-                        btnLogin.removeAttribute(
-                            'disabled'
-                        );
-
-                        btnLogin.click();
-
-                        return true;
-
-                    }
-
-
-                    return false;
-
-                }
-                """
-
-            )
-
-
-            if not resultado_login:
-
-                raise Exception(
-                    "No se encontró el formulario o botón de inicio de sesión."
-                )
-
-
-            page.keyboard.press(
-                "Enter"
-            )
-
-
-            page.wait_for_timeout(
-                4000
-            )
-
-
-            # -------------------------------------------------
-            # CERRAR NAVEGADOR
-            # -------------------------------------------------
-
-            if context:
-
-                context.close()
-
-            if browser:
-
-                browser.close()
-
-
-            print(
-                json.dumps(
-                    {
-                        "success": True,
-                        "url_actual": url_actual
-                    }
-                )
-            )
-
+        resultado = subprocess.run(
+            [ruta, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+
+        return (
+            resultado.stdout.strip()
+            or resultado.stderr.strip()
+        )
 
     except Exception as e:
 
-        try:
-
-            if context:
-                context.close()
-
-        except Exception:
-            pass
+        return str(e)
 
 
-        try:
+def main():
 
-            if browser:
-                browser.close()
+    parametros = json.loads(
+        sys.argv[1]
+    )
 
-        except Exception:
-            pass
+    url = parametros.get("url", "")
+    usuario = parametros.get("usuario", "")
+    password = parametros.get("password", "")
+    operador = parametros.get("operador", "")
+    detalle = parametros.get("detalle", "")
 
+    if not url:
+        raise Exception("No se recibió URL.")
 
-        print(
-            json.dumps(
+    navegadores = detectar_navegadores()
+
+    print(
+        json.dumps({
+            "tipo": "diagnostico",
+            "mensaje": "Navegadores del sistema detectados",
+            "navegadores": [
                 {
-                    "success": False,
-                    "error": str(e)
+                    "nombre": n["nombre"],
+                    "ruta": n["ruta"],
+                    "version": obtener_version(n["ruta"])
                 }
-            )
+                for n in navegadores
+            ]
+        }),
+        flush=True
+    )
+
+    args = [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--no-first-run",
+        "--no-zygote",
+        "--ignore-certificate-errors",
+    ]
+
+    with sync_playwright() as p:
+
+        browser = None
+
+        # ====================================================
+        # OPCIÓN 1 - NAVEGADOR DEL SISTEMA
+        # ====================================================
+
+        if navegadores:
+
+            for navegador in navegadores:
+
+                ruta = navegador["ruta"]
+
+                try:
+
+                    print(
+                        json.dumps({
+                            "tipo": "diagnostico",
+                            "mensaje":
+                                "Intentando navegador del sistema",
+                            "nombre": navegador["nombre"],
+                            "ruta": ruta
+                        }),
+                        flush=True
+                    )
+
+                    browser = p.chromium.launch(
+                        executable_path=ruta,
+                        headless=True,
+                        args=args
+                    )
+
+                    print(
+                        json.dumps({
+                            "tipo": "diagnostico",
+                            "mensaje":
+                                "Navegador del sistema iniciado correctamente",
+                            "ruta": ruta
+                        }),
+                        flush=True
+                    )
+
+                    break
+
+                except Exception as e:
+
+                    print(
+                        json.dumps({
+                            "tipo": "diagnostico",
+                            "mensaje":
+                                "Falló navegador del sistema",
+                            "ruta": ruta,
+                            "error": str(e)
+                        }),
+                        flush=True
+                    )
+
+                    browser = None
+
+        # ====================================================
+        # OPCIÓN 2 - PLAYWRIGHT
+        # ====================================================
+
+        if browser is None:
+
+            try:
+
+                print(
+                    json.dumps({
+                        "tipo": "diagnostico",
+                        "mensaje":
+                            "Intentando Chromium administrado por Playwright"
+                    }),
+                    flush=True
+                )
+
+                browser = p.chromium.launch(
+                    headless=True,
+                    args=args
+                )
+
+                print(
+                    json.dumps({
+                        "tipo": "diagnostico",
+                        "mensaje":
+                            "Chromium de Playwright iniciado correctamente"
+                    }),
+                    flush=True
+                )
+
+            except Exception as e:
+
+                raise Exception(
+                    "No fue posible iniciar ningún navegador.\n"
+                    "Navegadores del sistema detectados: "
+                    f"{[n['ruta'] for n in navegadores]}\n"
+                    "Error Playwright:\n"
+                    f"{e}"
+                )
+
+        # ====================================================
+        # AUTOMATIZACIÓN
+        # ====================================================
+
+        context = browser.new_context(
+            ignore_https_errors=True
         )
+
+        page = context.new_page()
+
+        try:
+
+            print(
+                json.dumps({
+                    "tipo": "diagnostico",
+                    "mensaje": "Navegando a URL",
+                    "url": url
+                }),
+                flush=True
+            )
+
+            page.goto(
+                url,
+                wait_until="domcontentloaded",
+                timeout=60000
+            )
+
+            page.wait_for_timeout(3000)
+
+            # ------------------------------------------------
+            # INGRESAR A ADMIN
+            # ------------------------------------------------
+
+            admin_url = url.rstrip("/") + "/#/admin"
+
+            print(
+                json.dumps({
+                    "tipo": "diagnostico",
+                    "mensaje":
+                        "Navegando al módulo de administración",
+                    "url": admin_url
+                }),
+                flush=True
+            )
+
+            page.goto(
+                admin_url,
+                wait_until="domcontentloaded",
+                timeout=60000
+            )
+
+            page.wait_for_timeout(3000)
+
+            # ------------------------------------------------
+            # FUNCIÓN AUXILIAR JS
+            # ------------------------------------------------
+
+            def llenar_campo_por_texto(
+                valor,
+                posibles_selectores
+            ):
+
+                if not valor:
+                    return False
+
+                for selector in posibles_selectores:
+
+                    try:
+
+                        locator = page.locator(
+                            selector
+                        ).first
+
+                        if locator.count() > 0:
+
+                            locator.fill(
+                                valor
+                            )
+
+                            return True
+
+                    except Exception:
+                        pass
+
+                return False
+
+            # ------------------------------------------------
+            # PRIMERA PANTALLA DE ACCESO
+            # ------------------------------------------------
+
+            llenar_campo_por_texto(
+                usuario,
+                [
+                    'input[type="text"]',
+                    'input[type="email"]',
+                    'input[placeholder*="usuario" i]',
+                    'input[placeholder*="user" i]',
+                    'input[name*="usuario" i]',
+                    'input[name*="user" i]'
+                ]
+            )
+
+            llenar_campo_por_texto(
+                password,
+                [
+                    'input[type="password"]',
+                    'input[placeholder*="contraseña" i]',
+                    'input[placeholder*="password" i]',
+                    'input[name*="password" i]'
+                ]
+            )
+
+            # ------------------------------------------------
+            # OPERADOR
+            # ------------------------------------------------
+
+            if operador:
+
+                page.evaluate(
+                    """
+                    (valor) => {
+                        const inputs =
+                            Array.from(
+                                document.querySelectorAll(
+                                    'input, textarea'
+                                )
+                            );
+
+                        for (const input of inputs) {
+
+                            const texto = (
+                                input.placeholder ||
+                                input.name ||
+                                input.id ||
+                                ''
+                            ).toLowerCase();
+
+                            if (
+                                texto.includes('operador') ||
+                                texto.includes('usuario')
+                            ) {
+                                input.value = valor;
+                                input.dispatchEvent(
+                                    new Event(
+                                        'input',
+                                        { bubbles: true }
+                                    )
+                                );
+                                input.dispatchEvent(
+                                    new Event(
+                                        'change',
+                                        { bubbles: true }
+                                    )
+                                );
+                                break;
+                            }
+                        }
+                    }
+                    """,
+                    operador
+                )
+
+            # ------------------------------------------------
+            # DETALLE / MOTIVO
+            # ------------------------------------------------
+
+            if detalle:
+
+                page.evaluate(
+                    """
+                    (valor) => {
+
+                        const campos =
+                            Array.from(
+                                document.querySelectorAll(
+                                    'input, textarea'
+                                )
+                            );
+
+                        for (const campo of campos) {
+
+                            const texto = (
+                                campo.placeholder ||
+                                campo.name ||
+                                campo.id ||
+                                ''
+                            ).toLowerCase();
+
+                            if (
+                                texto.includes('detalle') ||
+                                texto.includes('motivo') ||
+                                texto.includes('observ')
+                            ) {
+
+                                campo.value = valor;
+
+                                campo.dispatchEvent(
+                                    new Event(
+                                        'input',
+                                        { bubbles: true }
+                                    )
+                                );
+
+                                campo.dispatchEvent(
+                                    new Event(
+                                        'change',
+                                        { bubbles: true }
+                                    )
+                                );
+
+                                break;
+                            }
+                        }
+                    }
+                    """,
+                    detalle
+                )
+
+            # ------------------------------------------------
+            # BOTÓN PERMITIR ACCESO
+            # ------------------------------------------------
+
+            botones = [
+                page.get_by_text(
+                    "PERMITIR ACCESO",
+                    exact=False
+                ),
+                page.get_by_role(
+                    "button",
+                    name="PERMITIR ACCESO"
+                ),
+                page.get_by_text(
+                    "Permitir acceso",
+                    exact=False
+                )
+            ]
+
+            boton_encontrado = False
+
+            for boton in botones:
+
+                try:
+
+                    if boton.count() > 0:
+
+                        boton.first.click(
+                            timeout=10000
+                        )
+
+                        boton_encontrado = True
+
+                        break
+
+                except Exception:
+                    continue
+
+            if not boton_encontrado:
+
+                # Intento genérico mediante JavaScript
+
+                resultado_click = page.evaluate(
+                    """
+                    () => {
+
+                        const elementos =
+                            Array.from(
+                                document.querySelectorAll(
+                                    'button, input, a, div'
+                                )
+                            );
+
+                        const objetivo =
+                            elementos.find(
+                                e =>
+                                    (
+                                        e.innerText ||
+                                        e.value ||
+                                        ''
+                                    )
+                                    .trim()
+                                    .toUpperCase()
+                                    .includes(
+                                        'PERMITIR ACCESO'
+                                    )
+                            );
+
+                        if (objetivo) {
+
+                            objetivo.click();
+
+                            return true;
+                        }
+
+                        return false;
+                    }
+                    """
+                )
+
+                if not resultado_click:
+
+                    raise Exception(
+                        "No se encontró el botón "
+                        "'PERMITIR ACCESO'."
+                    )
+
+            page.wait_for_timeout(4000)
+
+            # ------------------------------------------------
+            # SEGUNDA PANTALLA DE LOGIN
+            # ------------------------------------------------
+
+            llenar_campo_por_texto(
+                usuario,
+                [
+                    'input[type="text"]',
+                    'input[type="email"]',
+                    'input[placeholder*="usuario" i]',
+                    'input[placeholder*="user" i]',
+                    'input[name*="usuario" i]',
+                    'input[name*="user" i]'
+                ]
+            )
+
+            llenar_campo_por_texto(
+                password,
+                [
+                    'input[type="password"]',
+                    'input[placeholder*="contraseña" i]',
+                    'input[placeholder*="password" i]',
+                    'input[name*="password" i]'
+                ]
+            )
+
+            page.wait_for_timeout(1000)
+
+            # ------------------------------------------------
+            # LOGIN
+            # ------------------------------------------------
+
+            try:
+
+                botones_login = [
+                    page.get_by_role(
+                        "button",
+                        name=re.compile(
+                            "ingresar|login|entrar|aceptar",
+                            re.IGNORECASE
+                        )
+                    ),
+                    page.get_by_text(
+                        re.compile(
+                            "ingresar|login|entrar|aceptar",
+                            re.IGNORECASE
+                        )
+                    )
+                ]
+
+                login_realizado = False
+
+                for boton in botones_login:
+
+                    try:
+
+                        if boton.count() > 0:
+
+                            boton.first.click(
+                                timeout=10000
+                            )
+
+                            login_realizado = True
+
+                            break
+
+                    except Exception:
+                        continue
+
+                if not login_realizado:
+
+                    page.keyboard.press("Enter")
+
+            except Exception:
+
+                page.keyboard.press("Enter")
+
+            page.wait_for_timeout(5000)
+
+            print(
+                json.dumps({
+                    "tipo": "resultado",
+                    "ok": True,
+                    "mensaje":
+                        "Automatización ejecutada correctamente"
+                }),
+                flush=True
+            )
+
+        finally:
+
+            try:
+                context.close()
+            except Exception:
+                pass
+
+            try:
+                browser.close()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
 
-    run()
-'''
+    try:
 
+        main()
 
-    with open(
-        WORKER_PATH,
-        "w",
-        encoding="utf-8"
-    ) as archivo:
+    except Exception as e:
 
-        archivo.write(
-            script_code
+        print(
+            json.dumps({
+                "tipo": "error",
+                "ok": False,
+                "error": str(e),
+                "traceback": traceback.format_exc()
+            }),
+            flush=True
         )
 
+        sys.exit(1)
+''' 
 
-# =========================================================
+    return worker_code
+
+
+# ============================================================
 # AUTOMATIZACIÓN WEB
-# =========================================================
+# ============================================================
 
 def automatizar_web(
-
-    dominio_ruta,
-
+    url,
     usuario,
-
     password,
-
     operador,
-
-    motivo_final,
-
-    texto_mensaje,
-
-    placeholder_log
-
+    detalle
 ):
 
-    st.session_state.log_ejecucion = []
+    limpiar_log()
 
-
-    # -----------------------------------------------------
-    # PREPARAR CHROMIUM
-    # -----------------------------------------------------
-
-    log_msg(
-
-        "Verificando disponibilidad de Chromium...",
-
-        placeholder_log,
-
-        "INFO"
-
+    agregar_log(
+        "Verificando disponibilidad de Chromium..."
     )
 
+    # --------------------------------------------------------
+    # PREPARAR / DETECTAR
+    # --------------------------------------------------------
 
-    chromium_ok, chromium_error = (
-        preparar_chromium()
-    )
+    preparado, navegadores = preparar_chromium()
 
+    if not preparado:
 
-    if not chromium_ok:
-
-        log_msg(
-
-            f"No se pudo preparar Chromium: {chromium_error}",
-
-            placeholder_log,
-
+        agregar_log(
+            "No fue posible preparar el entorno de navegador.",
             "ERROR"
-
         )
 
-
-        return (
-            False,
-            f"No se pudo preparar Chromium: {chromium_error}",
-            False,
-            None
+        return False, "\n".join(
+            st.session_state.log_ejecucion
         )
 
-
-    log_msg(
-
-        "Chromium disponible.",
-
-        placeholder_log,
-
-        "OK"
-
+    agregar_log(
+        "Iniciando subproceso aislado de automatización..."
     )
 
-
-    # -----------------------------------------------------
+    # --------------------------------------------------------
     # CREAR WORKER
-    # -----------------------------------------------------
+    # --------------------------------------------------------
 
-    asegurar_script_worker()
+    worker_path = "/tmp/runner_playwright.py"
 
+    try:
 
-    params = {
+        worker_code = crear_worker_playwright()
 
-        "dominio_ruta": dominio_ruta,
+        with open(
+            worker_path,
+            "w",
+            encoding="utf-8"
+        ) as archivo:
 
+            archivo.write(worker_code)
+
+    except Exception as e:
+
+        agregar_log(
+            f"No se pudo crear el worker: {e}",
+            "ERROR"
+        )
+
+        return False, "\n".join(
+            st.session_state.log_ejecucion
+        )
+
+    # --------------------------------------------------------
+    # PARÁMETROS
+    # --------------------------------------------------------
+
+    parametros = {
+        "url": normalizar_url(url),
         "usuario": usuario,
-
         "password": password,
-
         "operador": operador,
-
-        "motivo_final": motivo_final,
-
-        "texto_mensaje": texto_mensaje
-
+        "detalle": detalle
     }
 
-
-    log_msg(
-
-        "Iniciando subproceso aislado de automatización...",
-
-        placeholder_log,
-
-        "INFO"
-
-    )
-
+    # --------------------------------------------------------
+    # EJECUTAR WORKER
+    # --------------------------------------------------------
 
     try:
 
         resultado = subprocess.run(
-
             [
-
                 sys.executable,
-
-                WORKER_PATH,
-
-                json.dumps(params)
-
+                worker_path,
+                json.dumps(
+                    parametros,
+                    ensure_ascii=False
+                )
             ],
-
             capture_output=True,
-
             text=True,
-
-            check=True,
-
-            timeout=90
-
+            timeout=180
         )
 
+        stdout = resultado.stdout or ""
+        stderr = resultado.stderr or ""
 
-        salida_raw = (
-            resultado.stdout.strip()
-        )
+        # ----------------------------------------------------
+        # PROCESAR SALIDA DEL WORKER
+        # ----------------------------------------------------
 
+        resultado_json = None
 
-        lineas_salida = [
+        for linea in stdout.splitlines():
 
-            linea
+            linea = linea.strip()
 
-            for linea in salida_raw.split("\n")
-
-            if linea.strip().startswith("{")
-
-        ]
-
-
-        if lineas_salida:
+            if not linea:
+                continue
 
             try:
 
-                data = json.loads(
-                    lineas_salida[-1]
-                )
+                dato = json.loads(linea)
 
-            except json.JSONDecodeError:
+                # --------------------------------------------
+                # DIAGNÓSTICOS
+                # --------------------------------------------
 
-                log_msg(
+                if dato.get("tipo") == "diagnostico":
 
-                    f"Respuesta no válida del worker: {salida_raw}",
+                    mensaje = dato.get(
+                        "mensaje",
+                        ""
+                    )
 
-                    placeholder_log,
+                    if mensaje:
+                        agregar_log(
+                            mensaje
+                        )
 
-                    "ERROR"
+                    navegadores_detectados = dato.get(
+                        "navegadores"
+                    )
 
-                )
+                    if navegadores_detectados:
 
-                return (
-                    False,
-                    "El worker devolvió una respuesta no válida.",
-                    False,
-                    None
-                )
+                        for navegador in navegadores_detectados:
 
+                            agregar_log(
+                                f"  {navegador.get('nombre')}: "
+                                f"{navegador.get('ruta')} "
+                                f"- {navegador.get('version')}"
+                            )
 
-            if data.get("success"):
+                    ruta = dato.get("ruta")
 
-                log_msg(
+                    if ruta:
 
-                    "ACCESO AUTORIZADO Y SESIÓN INICIADA CORRECTAMENTE EN CHESS ERP.",
+                        agregar_log(
+                            f"Ruta utilizada: {ruta}",
+                            "OK"
+                        )
 
-                    placeholder_log,
+                    error = dato.get("error")
 
-                    "OK"
+                    if error:
 
-                )
+                        agregar_log(
+                            f"Error: {error}",
+                            "WARNING"
+                        )
 
+                # --------------------------------------------
+                # RESULTADO
+                # --------------------------------------------
 
-                registrar_en_historial(
+                elif dato.get("tipo") == "resultado":
 
-                    usuario,
+                    resultado_json = dato
 
-                    dominio_ruta,
+                # --------------------------------------------
+                # ERROR
+                # --------------------------------------------
 
-                    operador,
+                elif dato.get("tipo") == "error":
 
-                    motivo_final
+                    resultado_json = dato
 
-                )
+            except Exception:
+                # Salida no JSON: ignorar
+                pass
 
+        # ----------------------------------------------------
+        # ERROR
+        # ----------------------------------------------------
 
-                return (
+        if resultado.returncode != 0:
 
-                    True,
-
-                    "Acceso e inicio de sesión completados correctamente",
-
-                    False,
-
-                    data.get("url_actual")
-
-                )
-
-
-            else:
-
-                err_msg = data.get(
-
+            if resultado_json:
+                error_worker = resultado_json.get(
                     "error",
-
-                    "Error desconocido en worker"
-
+                    "Error desconocido"
                 )
+            else:
+                error_worker = stderr or stdout
 
-
-                log_msg(
-
-                    f"ERROR EN WORKER: {err_msg}",
-
-                    placeholder_log,
-
-                    "ERROR"
-
-                )
-
-
-                return (
-
-                    False,
-
-                    err_msg,
-
-                    False,
-
-                    None
-
-                )
-
-
-        else:
-
-            log_msg(
-
-                f"Respuesta inesperada del worker: {salida_raw}",
-
-                placeholder_log,
-
+            agregar_log(
+                f"ERROR EN WORKER: {error_worker}",
                 "ERROR"
-
             )
 
+            if stderr:
 
-            return (
+                agregar_log(
+                    stderr.strip(),
+                    "ERROR"
+                )
 
-                False,
-
-                "Salida no válida del worker de Playwright",
-
-                False,
-
-                None
-
+            return False, "\n".join(
+                st.session_state.log_ejecucion
             )
 
+        # ----------------------------------------------------
+        # ÉXITO
+        # ----------------------------------------------------
+
+        agregar_log(
+            "Automatización finalizada correctamente.",
+            "OK"
+        )
+
+        registrar_en_historial(
+            operador=operador,
+            url=url,
+            ticket=st.session_state.in_tick,
+            motivo=detalle,
+            usuario_app=st.session_state.usuario
+        )
+
+        return True, "\n".join(
+            st.session_state.log_ejecucion
+        )
 
     except subprocess.TimeoutExpired:
 
-        log_msg(
-
-            "La automatización superó el tiempo máximo de espera.",
-
-            placeholder_log,
-
+        agregar_log(
+            "La automatización superó el tiempo máximo de 180 segundos.",
             "ERROR"
-
         )
 
-
-        return (
-
-            False,
-
-            "Tiempo máximo de automatización excedido.",
-
-            False,
-
-            None
-
+        return False, "\n".join(
+            st.session_state.log_ejecucion
         )
-
-
-    except subprocess.CalledProcessError as e:
-
-        err_out = (
-
-            e.stderr
-            or e.stdout
-            or "Error desconocido"
-        )
-
-
-        log_msg(
-
-            f"ERROR EN SUBPROCESO: {err_out.strip()}",
-
-            placeholder_log,
-
-            "ERROR"
-
-        )
-
-
-        return (
-
-            False,
-
-            err_out.strip(),
-
-            False,
-
-            None
-
-        )
-
 
     except Exception as e:
 
-        log_msg(
-
-            f"ERROR EN AUTOMATIZACIÓN: {e}",
-
-            placeholder_log,
-
+        agregar_log(
+            f"Error ejecutando worker: {e}",
             "ERROR"
+        )
 
+        return False, "\n".join(
+            st.session_state.log_ejecucion
         )
 
 
-        return (
-
-            False,
-
-            str(e),
-
-            False,
-
-            None
-
-        )
-
-
-# =========================================================
+# ============================================================
 # LOGIN
-# =========================================================
+# ============================================================
+
+def consultar_usuario(username):
+    if supabase is None:
+        return None
+
+    try:
+
+        resultado = (
+            supabase
+            .table("usuarios_app")
+            .select("*")
+            .or_(
+                f"usuario.eq.{username},"
+                f"email.eq.{username}"
+            )
+            .limit(1)
+            .execute()
+        )
+
+        if resultado.data:
+            return resultado.data[0]
+
+        return None
+
+    except Exception as e:
+
+        st.error(
+            f"Error consultando usuario: {e}"
+        )
+
+        return None
+
+
+def autenticar_usuario(username, password):
+
+    usuario = consultar_usuario(username)
+
+    if not usuario:
+        return False, "Usuario no encontrado."
+
+    password_bd = usuario.get("password")
+
+    if password_bd != password:
+        return False, "Contraseña incorrecta."
+
+    return True, usuario
+
+
+def registrar_usuario(
+    username,
+    password,
+    email
+):
+
+    if supabase is None:
+        return False, "Supabase no está disponible."
+
+    try:
+
+        existente = consultar_usuario(
+            username
+        )
+
+        if existente:
+            return False, "El usuario ya existe."
+
+        datos = {
+            "usuario": username,
+            "email": email,
+            "password": password
+        }
+
+        resultado = (
+            supabase
+            .table("usuarios_app")
+            .insert(datos)
+            .execute()
+        )
+
+        if resultado.data:
+
+            return True, "Usuario registrado correctamente."
+
+        return False, "No se pudo registrar el usuario."
+
+    except Exception as e:
+
+        return False, str(e)
+
 
 def vista_login():
 
     st.markdown(
-
-        "<h2 style='text-align: center;'>"
-        "Acceso CHESS ERP"
-        "</h2>",
-
+        '<div class="titulo-principal">🔐 Gestor de Autorización CHESS ERP</div>',
         unsafe_allow_html=True
-
     )
 
+    st.markdown(
+        '<div class="subtitulo">Ingreso al sistema de autorización</div>',
+        unsafe_allow_html=True
+    )
 
-    st.markdown("---")
-
-
-    opcion = st.radio(
-
-        "Acción:",
-
+    tab_login, tab_registro = st.tabs(
         [
-            "Iniciar Sesión",
-            "Registrar Usuario"
-        ],
-
-        horizontal=True
-
+            "🔑 Iniciar Sesión",
+            "📝 Registrar Usuario"
+        ]
     )
 
+    # ========================================================
+    # LOGIN
+    # ========================================================
 
-    with st.form("auth_form"):
+    with tab_login:
 
-        usr_input = st.text_input(
-
-            "Usuario ERP",
-
-            value=(
-                session_usr
-                if session_usr
-                else ""
-            ),
-
-            key="login_usr_input"
-
+        usuario = st.text_input(
+            "Usuario / Email",
+            value=st.session_state.usuario,
+            key="login_usuario"
         )
 
-
-        pwd = st.text_input(
-
-            "Contraseña ERP",
-
+        password = st.text_input(
+            "Contraseña",
             type="password",
-
-            value=(
-                session_pwd
-                if session_pwd
-                else ""
-            ),
-
-            key="login_pwd_input"
-
+            value=st.session_state.password,
+            key="login_password"
         )
 
-
-        email_input = None
-
-
-        if opcion == "Registrar Usuario":
-
-            email_input = st.text_input(
-
-                "Correo electrónico",
-
-                key="login_email_input"
-
-            )
-
-
-        recordar_credenciales = st.checkbox(
-
+        recordar = st.checkbox(
             "Recordar credenciales y mantener sesión activa",
-
-            value=True
-
+            value=False,
+            key="recordar_login"
         )
 
-
-        submit = st.form_submit_button(
-
-            "CONTINUAR",
-
+        if st.button(
+            "🔐 Iniciar Sesión",
+            type="primary",
             width="stretch"
+        ):
 
-        )
+            if not usuario or not password:
 
-
-        if submit:
-
-            if not usr_input or not pwd:
-
-                st.warning(
-                    "Por favor complete usuario y contraseña."
+                st.error(
+                    "Ingresá usuario y contraseña."
                 )
 
-                return
+            else:
 
+                correcto, resultado = autenticar_usuario(
+                    usuario,
+                    password
+                )
 
-            usuario_limpio = (
-                usr_input.strip()
-            )
+                if correcto:
 
+                    st.session_state.autenticado = True
+                    st.session_state.usuario = usuario
+                    st.session_state.password = password
 
-            # =================================================
-            # LOGIN
-            # =================================================
+                    if recordar:
 
-            if opcion == "Iniciar Sesión":
+                        try:
 
-                with st.spinner(
-                    "Verificando credenciales..."
-                ):
-
-                    try:
-
-                        res = (
-
-                            supabase
-
-                            .table("usuarios_app")
-
-                            .select("*")
-
-                            .or_(
-
-                                f"usuario.eq.{usuario_limpio},"
-
-                                f"email.eq.{usuario_limpio.lower()}"
-
-                            )
-
-                            .eq(
-                                "password",
-                                pwd
-                            )
-
-                            .execute()
-
-                        )
-
-
-                        registros = (
-                            res.data or []
-                        )
-
-
-                        if registros:
-
-                            st.session_state.autenticado = (
-                                True
-                            )
-
-                            st.session_state.usuario = (
-                                registros[0]["usuario"]
-                            )
-
-                            st.session_state.password = (
-                                registros[0]["password"]
-                            )
-
-
-                            # ---------------------------------
-                            # COOKIES
-                            # ---------------------------------
-
-                            if recordar_credenciales:
-
-                                exp_date = (
-                                    datetime.now()
+                            cookie_manager.set(
+                                "chess_usuario",
+                                usuario,
+                                expires_at=(
+                                    ahora_argentina()
                                     + timedelta(days=30)
                                 )
-
-
-                                try:
-
-                                    cookie_manager.set(
-
-                                        "chess_session_usr",
-
-                                        usuario_limpio,
-
-                                        key="set_usr",
-
-                                        expires_at=exp_date
-
-                                    )
-
-
-                                    cookie_manager.set(
-
-                                        "chess_session_pwd",
-
-                                        pwd,
-
-                                        key="set_pwd",
-
-                                        expires_at=exp_date
-
-                                    )
-
-                                except Exception:
-
-                                    pass
-
-
-                            else:
-
-                                try:
-
-                                    cookie_manager.delete(
-
-                                        "chess_session_usr",
-
-                                        key="del_usr"
-
-                                    )
-
-                                except Exception:
-
-                                    pass
-
-
-                                try:
-
-                                    cookie_manager.delete(
-
-                                        "chess_session_pwd",
-
-                                        key="del_pwd"
-
-                                    )
-
-                                except Exception:
-
-                                    pass
-
-
-                            st.rerun()
-
-
-                        else:
-
-                            st.error(
-
-                                "Usuario, email o contraseña incorrectos."
-
                             )
 
+                        except Exception:
+                            pass
 
-                    except Exception as e:
-
-                        st.error(
-
-                            f"Error al consultar la base de datos: {e}"
-
-                        )
-
-
-            # =================================================
-            # REGISTRO
-            # =================================================
-
-            elif opcion == "Registrar Usuario":
-
-                email_final = (
-
-                    email_input.strip().lower()
-
-                    if email_input
-
-                    else (
-                        f"{usuario_limpio.lower()}"
-                        "@chesserp.com"
+                    st.success(
+                        "Inicio de sesión correcto."
                     )
 
+                    st.rerun()
+
+                else:
+
+                    st.error(resultado)
+
+    # ========================================================
+    # REGISTRO
+    # ========================================================
+
+    with tab_registro:
+
+        nuevo_usuario = st.text_input(
+            "Usuario",
+            key="registro_usuario"
+        )
+
+        nuevo_email = st.text_input(
+            "Email",
+            key="registro_email"
+        )
+
+        nueva_password = st.text_input(
+            "Contraseña",
+            type="password",
+            key="registro_password"
+        )
+
+        repetir_password = st.text_input(
+            "Repetir contraseña",
+            type="password",
+            key="registro_password2"
+        )
+
+        if st.button(
+            "📝 Registrar Usuario",
+            type="primary",
+            width="stretch"
+        ):
+
+            if not nuevo_usuario:
+                st.error("Ingresá un usuario.")
+
+            elif not nuevo_email:
+                st.error("Ingresá un email.")
+
+            elif not nueva_password:
+                st.error("Ingresá una contraseña.")
+
+            elif nueva_password != repetir_password:
+                st.error(
+                    "Las contraseñas no coinciden."
                 )
 
+            else:
 
-                with st.spinner(
-                    "Registrando usuario..."
-                ):
+                correcto, mensaje = registrar_usuario(
+                    nuevo_usuario,
+                    nueva_password,
+                    nuevo_email
+                )
 
-                    try:
+                if correcto:
+                    st.success(mensaje)
 
-                        supabase.table(
-                            "usuarios_app"
-                        ).insert(
-
-                            {
-
-                                "usuario":
-                                    usuario_limpio,
-
-                                "password":
-                                    pwd,
-
-                                "email":
-                                    email_final
-
-                            }
-
-                        ).execute()
+                else:
+                    st.error(mensaje)
 
 
-                        st.success(
+# ============================================================
+# CERRAR SESIÓN
+# ============================================================
 
-                            f"Usuario '{usuario_limpio}' "
-                            "registrado correctamente. "
-                            "Ya puede iniciar sesión."
+def cerrar_sesion():
 
-                        )
+    st.session_state.autenticado = False
+    st.session_state.usuario = ""
+    st.session_state.password = ""
+
+    try:
+        cookie_manager.delete(
+            "chess_usuario"
+        )
+    except Exception:
+        pass
+
+    st.rerun()
 
 
-                    except Exception as e:
-
-                        st.error(
-
-                            f"Error al registrar usuario: {e}"
-
-                        )
-
-
-# =========================================================
-# PANTALLA PRINCIPAL
-# =========================================================
+# ============================================================
+# VISTA PRINCIPAL
+# ============================================================
 
 def vista_principal():
 
-    # =====================================================
+    # ========================================================
     # SIDEBAR
-    # =====================================================
+    # ========================================================
 
-    st.sidebar.title(
-        "Menú"
-    )
+    with st.sidebar:
 
+        st.markdown(
+            "### 🔐 CHESS ERP"
+        )
 
-    st.sidebar.write(
+        st.markdown(
+            f"Usuario: **{st.session_state.usuario}**"
+        )
 
-        f"**Usuario activo:** "
-        f"`{st.session_state.usuario}`"
+        st.divider()
 
-    )
+        if st.button(
+            "🚪 Cerrar Sesión",
+            width="stretch"
+        ):
+            cerrar_sesion()
 
+        st.divider()
 
-    if st.sidebar.button(
+        st.markdown(
+            """
+            **Gestor de Autorización**
 
-        "🚪 Cerrar Sesión",
+            Automatización de autorizaciones
+            mediante Playwright.
+            """
+        )
 
-        width="stretch"
-
-    ):
-
-        st.session_state.autenticado = False
-
-        st.session_state.usuario = ""
-
-        st.session_state.password = ""
-
-
-        try:
-
-            cookie_manager.delete(
-
-                "chess_session_usr",
-
-                key="logout_usr"
-
-            )
-
-        except Exception:
-
-            pass
-
-
-        try:
-
-            cookie_manager.delete(
-
-                "chess_session_pwd",
-
-                key="logout_pwd"
-
-            )
-
-        except Exception:
-
-            pass
-
-
-        borrar_todo()
-
-        st.rerun()
-
-
-    # =====================================================
+    # ========================================================
     # TÍTULO
-    # =====================================================
-
-    st.title(
-        "Gestor de Autorización CHESS ERP"
-    )
-
-
-    # =====================================================
-    # MENSAJE
-    # =====================================================
-
-    txt_mensaje = st.text_area(
-
-        "Pegue el mensaje de solicitud:",
-
-        key="txt_mensaje",
-
-        height=120
-
-    )
-
-
-    col_proc, col_borr = st.columns(
-        [2, 1]
-    )
-
-
-    with col_proc:
-
-        btn_procesar = st.button(
-
-            "⚡ PROCESAR MENSAJE",
-
-            width="stretch"
-
-        )
-
-
-    with col_borr:
-
-        st.button(
-
-            "🗑️ Borrar",
-
-            on_click=borrar_todo,
-
-            width="stretch"
-
-        )
-
-
-    if btn_procesar:
-
-        if txt_mensaje.strip():
-
-            extraer_y_actualizar(
-                txt_mensaje
-            )
-
-
-            st.session_state.ultimo_mensaje_procesado = (
-                txt_mensaje
-            )
-
-            st.session_state.url_autorizada_lista = (
-                None
-            )
-
-
-            st.rerun()
-
-        else:
-
-            st.warning(
-
-                "Por favor ingrese o pegue un mensaje antes de procesar."
-
-            )
-
-
-    # =====================================================
-    # PROCESAMIENTO INICIAL
-    # =====================================================
-
-    if (
-
-        st.session_state.ultimo_mensaje_procesado
-        is None
-
-    ):
-
-        extraer_y_actualizar(
-            txt_mensaje
-        )
-
-        st.session_state.ultimo_mensaje_procesado = (
-            txt_mensaje
-        )
-
-
-    st.markdown("---")
-
-
-    # =====================================================
-    # DATOS DETECTADOS
-    # =====================================================
+    # ========================================================
 
     st.markdown(
-        "### Datos Detectados (Editables)"
+        '<div class="titulo-principal">🔐 Gestor de Autorización CHESS ERP</div>',
+        unsafe_allow_html=True
     )
 
-
-    st.caption(
-        "Verifique o edite los campos manualmente antes de autorizar."
+    st.markdown(
+        '<div class="subtitulo">Procesamiento y autorización automática de solicitudes</div>',
+        unsafe_allow_html=True
     )
 
+    # ========================================================
+    # MENSAJE
+    # ========================================================
+
+    st.subheader(
+        "📨 Mensaje de autorización"
+    )
+
+    mensaje = st.text_area(
+        "Pegá aquí el mensaje recibido:",
+        value=st.session_state.mensaje,
+        height=180,
+        key="mensaje_autorizacion"
+    )
 
     col1, col2 = st.columns(2)
 
-
     with col1:
 
-        dominio_final = st.text_input(
+        if st.button(
+            "🔎 Procesar mensaje",
+            type="primary",
+            width="stretch"
+        ):
 
-            "Servidor / Ruta URL:",
+            if not mensaje.strip():
 
-            key="in_dom"
+                st.warning(
+                    "Ingresá un mensaje."
+                )
 
-        )
+            else:
 
+                extraer_y_actualizar(
+                    mensaje
+                )
 
-        operador_final = st.text_input(
-
-            "Operador Autorizado:",
-
-            key="in_op"
-
-        )
-
+                st.success(
+                    "Datos extraídos correctamente."
+                )
 
     with col2:
 
-        ticket_final = st.text_input(
+        if st.button(
+            "🗑️ Limpiar",
+            width="stretch"
+        ):
 
-            "No. Ticket:",
+            st.session_state.mensaje = ""
 
-            key="in_tick"
+            st.session_state.in_dom = ""
+            st.session_state.in_op = ""
+            st.session_state.in_tick = ""
+            st.session_state.in_mot = ""
 
+            st.rerun()
+
+    # ========================================================
+    # DATOS DETECTADOS
+    # ========================================================
+
+    st.subheader(
+        "📋 Datos detectados"
+    )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        operador = st.text_input(
+            "Operador",
+            value=st.session_state.in_op,
+            key="campo_operador"
         )
 
-
-        motivo_base = st.text_input(
-
-            "Motivo:",
-
-            key="in_mot"
-
+        ticket = st.text_input(
+            "Ticket",
+            value=st.session_state.in_tick,
+            key="campo_ticket"
         )
 
+    with col2:
 
-    # =====================================================
-    # MOTIVO FINAL
-    # =====================================================
-
-    if (
-
-        ticket_final
-
-        and
-
-        not motivo_base.startswith(
-            ticket_final
+        url = st.text_input(
+            "URL",
+            value=st.session_state.in_dom,
+            key="campo_url"
         )
 
-    ):
+        motivo = st.text_area(
+            "Motivo",
+            value=st.session_state.in_mot,
+            height=100,
+            key="campo_motivo"
+        )
 
-        motivo_ejecucion = (
+    # ========================================================
+    # ACTUALIZAR SESSION STATE
+    # ========================================================
 
-            f"{ticket_final} - {motivo_base}"
+    st.session_state.in_op = operador
+    st.session_state.in_tick = ticket
+    st.session_state.in_dom = url
+    st.session_state.in_mot = motivo
 
-            if motivo_base
+    # ========================================================
+    # VALIDACIÓN
+    # ========================================================
 
-            else ticket_final
+    datos_completos = bool(
+        operador.strip()
+        and url.strip()
+        and motivo.strip()
+    )
 
+    if datos_completos:
+
+        st.markdown(
+            """
+            <div class="estado-ok">
+                ✅ Datos suficientes para ejecutar la autorización.
+            </div>
+            """,
+            unsafe_allow_html=True
         )
 
     else:
 
-        motivo_ejecucion = motivo_base
+        st.markdown(
+            """
+            <div class="estado-warning">
+                ⚠️ Faltan datos para ejecutar la autorización.
+                Verificá operador, URL y motivo.
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
+    # ========================================================
+    # AUTORIZACIÓN
+    # ========================================================
 
-    st.markdown("---")
-
-
-    # =====================================================
-    # AUTORIZAR
-    # =====================================================
-
-    btn_permitir = st.button(
-
-        "PERMITIR ACCESO EN CHESS ERP",
-
-        type="primary",
-
-        width="stretch"
-
+    st.subheader(
+        "🚀 Autorización"
     )
 
+    col1, col2 = st.columns(2)
 
-    if st.session_state.url_autorizada_lista:
+    with col1:
 
-        st.link_button(
-
-            "🔗 Abrir ERP Habilitado en la Web",
-
-            st.session_state.url_autorizada_lista,
-
-            width="stretch"
-
+        ejecutar = st.button(
+            "🚀 AUTORIZAR",
+            type="primary",
+            width="stretch",
+            disabled=not datos_completos
         )
 
+    with col2:
 
-    sesion_activa_detectada = False
-
-
-    # =====================================================
-    # VERIFICAR SESIÓN PREVIA
-    # =====================================================
-
-    if (
-
-        btn_permitir
-
-        and dominio_final
-
-        and dominio_final != "No detectado"
-
-    ):
-
-        sesion_previa = (
-
-            buscar_autorizacion_reciente(
-
-                dominio_final,
-
-                minutos=10
-
-            )
-
+        verificar = st.button(
+            "🔍 Verificar autorización reciente",
+            width="stretch",
+            disabled=not bool(url.strip())
         )
 
+    # ========================================================
+    # VERIFICAR DUPLICADO
+    # ========================================================
 
-        if (
+    if verificar:
 
-            sesion_previa["activa"]
+        reciente = buscar_autorizacion_reciente(
+            url
+        )
 
-            and
+        if reciente:
 
-            not st.session_state.get(
-                "forzar_ejecucion",
-                False
+            fecha = reciente.get(
+                "fecha_hora",
+                ""
             )
 
-        ):
+            operador_anterior = reciente.get(
+                "operador",
+                ""
+            )
 
-            sesion_activa_detectada = True
-
+            ticket_anterior = reciente.get(
+                "ticket",
+                ""
+            )
 
             st.warning(
-
-                f"⚠️ **SESIÓN ACTIVA DETECTADA:** "
-                f"Este entorno (`{dominio_final}`) "
-                f"ya fue autorizado hace "
-                f"**{sesion_previa['hace_minutos']} min** "
-                f"(a las {sesion_previa['fecha']}) "
-                f"por **{sesion_previa['usuario']}** "
-                f"para el operador "
-                f"**{sesion_previa['operador']}**."
-
+                "⚠️ Se encontró una autorización reciente "
+                f"para este dominio.\n\n"
+                f"Operador: {operador_anterior}\n\n"
+                f"Ticket: {ticket_anterior}\n\n"
+                f"Fecha: {fecha}"
             )
 
+            st.session_state.forzar_ejecucion = True
 
-            col_reutilizar, col_forzar = (
-                st.columns(2)
+        else:
+
+            st.success(
+                "✅ No se encontraron autorizaciones "
+                "recientes para este dominio."
             )
 
+    # ========================================================
+    # EJECUTAR
+    # ========================================================
 
-            with col_reutilizar:
+    if ejecutar:
 
-                url_directa = (
-
-                    dominio_final
-
-                    if dominio_final.startswith(
-                        "http"
-                    )
-
-                    else (
-                        f"https://{dominio_final}"
-                    )
-
-                )
-
-
-                st.link_button(
-
-                    "🔗 Ir directamente al ERP",
-
-                    url_directa,
-
-                    width="stretch"
-
-                )
-
-
-            with col_forzar:
-
-                if st.button(
-
-                    "⚡ Re-autorizar de todos modos",
-
-                    width="stretch"
-
-                ):
-
-                    st.session_state[
-                        "forzar_ejecucion"
-                    ] = True
-
-                    st.rerun()
-
-
-    st.markdown("---")
-
-
-    # =====================================================
-    # LOG
-    # =====================================================
-
-    st.markdown(
-        "#### Estado de Ejecución"
-    )
-
-
-    placeholder_log = st.empty()
-
-
-    if st.session_state.log_ejecucion:
-
-        placeholder_log.code(
-
-            "\n".join(
-                st.session_state.log_ejecucion
-            ),
-
-            language="bash"
-
+        reciente = buscar_autorizacion_reciente(
+            url
         )
 
+        if reciente and not st.session_state.forzar_ejecucion:
 
-    # =====================================================
-    # EJECUTAR AUTOMATIZACIÓN
-    # =====================================================
+            st.warning(
+                "⚠️ Ya existe una autorización reciente "
+                "para este dominio."
+            )
 
-    if (
-
-        btn_permitir
-
-        and
-
-        not sesion_activa_detectada
-
-    ):
-
-        if (
-
-            not dominio_final
-
-            or dominio_final == "No detectado"
-
-        ):
-
-            st.error(
-
-                "Por favor ingrese un Servidor / Ruta URL válido."
-
+            st.info(
+                "Si necesitás realizarla igualmente, "
+                "verificá la información y volvé a ejecutar."
             )
 
         else:
 
-            st.session_state[
-                "forzar_ejecucion"
-            ] = False
+            with st.spinner(
+                "Ejecutando autorización en CHESS ERP..."
+            ):
 
-
-            exito, msg, advertencia, url_resuelta = (
-
-                automatizar_web(
-
-                    dominio_final,
-
-                    st.session_state.usuario,
-
-                    st.session_state.password,
-
-                    operador_final,
-
-                    motivo_ejecucion,
-
-                    txt_mensaje,
-
-                    placeholder_log
-
+                correcto, log = automatizar_web(
+                    url=url,
+                    usuario=st.session_state.usuario,
+                    password=st.session_state.password,
+                    operador=operador,
+                    detalle=motivo
                 )
 
-            )
+            if correcto:
 
-
-            if exito:
-
-                st.session_state.url_autorizada_lista = (
-
-                    url_resuelta
-
-                    or (
-
-                        dominio_final
-
-                        if dominio_final.startswith(
-                            "http"
-                        )
-
-                        else (
-                            f"https://{dominio_final}"
-                        )
-
-                    )
-
+                st.success(
+                    "✅ Autorización ejecutada correctamente."
                 )
-
-
-                if not advertencia:
-
-                    st.success(
-                        msg
-                    )
-
-                else:
-
-                    st.warning(
-                        msg
-                    )
-
-
-                st.rerun()
-
 
             else:
 
-                st.session_state.url_autorizada_lista = (
-                    None
-                )
-
                 st.error(
-                    f"Error: {msg}"
+                    "❌ La autorización no pudo ejecutarse."
                 )
 
+            st.session_state.forzar_ejecucion = False
 
-    st.markdown("---")
+    # ========================================================
+    # ESTADO DE EJECUCIÓN
+    # ========================================================
 
+    st.subheader(
+        "📊 Estado de Ejecución"
+    )
 
-    # =====================================================
-    # HISTORIAL
-    # =====================================================
+    if st.session_state.log_ejecucion:
 
-    with st.expander(
-        "Ver Historial de Autorizaciones"
-    ):
-
-        col_hist_title, col_hist_btn = (
-            st.columns([3, 1])
+        log_texto = "\n".join(
+            st.session_state.log_ejecucion
         )
 
+        st.code(
+            log_texto,
+            language="bash"
+        )
 
-        with col_hist_title:
+    else:
 
-            st.caption(
+        st.info(
+            "Todavía no se ejecutó ninguna automatización."
+        )
 
-                "Últimas autorizaciones registradas en la plataforma:"
+    # ========================================================
+    # HISTORIAL SUPABASE
+    # ========================================================
 
-            )
+    st.subheader(
+        "📚 Historial de autorizaciones"
+    )
 
-
-        with col_hist_btn:
-
-            if st.button(
-
-                "🔄 Actualizar",
-
-                key="btn_refresh_hist",
-
-                width="stretch"
-
-            ):
-
-                st.rerun()
-
+    if supabase is not None:
 
         try:
 
-            res = (
-
+            resultado = (
                 supabase
-
-                .table(
-                    "historial_autorizaciones"
-                )
-
-                .select(
-                    "created_at, operador, motivo, usuario, dominio_ruta"
-                )
-
-                .order(
-                    "created_at",
-                    desc=True
-                )
-
-                .limit(100)
-
+                .table("historial_autorizaciones")
+                .select("*")
+                .order("fecha_hora", desc=True)
+                .limit(50)
                 .execute()
-
             )
 
+            if resultado.data:
 
-            registros = res.data or []
+                import pandas as pd
 
-
-            if registros:
-
-                tz_local = ZoneInfo(
-
-                    "America/Argentina/Buenos_Aires"
-
+                df = pd.DataFrame(
+                    resultado.data
                 )
-
-
-                datos_tabla = []
-
-
-                for registro in registros:
-
-                    fecha_raw = registro.get(
-
-                        "created_at",
-
-                        ""
-
-                    )
-
-
-                    try:
-
-                        fecha_dt = (
-
-                            datetime
-
-                            .fromisoformat(
-
-                                fecha_raw.replace(
-
-                                    "Z",
-
-                                    "+00:00"
-
-                                )
-
-                            )
-
-                        )
-
-
-                        fecha_local = (
-
-                            fecha_dt
-
-                            .astimezone(
-                                tz_local
-                            )
-
-                        )
-
-
-                        fecha_fmt = (
-
-                            fecha_local.strftime(
-
-                                "%d/%m/%Y %H:%M"
-
-                            )
-
-                        )
-
-
-                    except Exception:
-
-                        fecha_fmt = (
-                            fecha_raw[:16]
-                            if fecha_raw
-                            else "-"
-                        )
-
-
-                    motivo_completo = (
-
-                        registro.get(
-                            "motivo",
-                            ""
-                        )
-
-                        or "-"
-
-                    )
-
-
-                    match_ticket = re.search(
-
-                        r"(#\d+)",
-
-                        motivo_completo
-
-                    )
-
-
-                    if match_ticket:
-
-                        id_ticket = (
-                            match_ticket.group(1)
-                        )
-
-
-                        motivo_limpio = re.sub(
-
-                            r"^#\d+\s*[-–—]?\s*",
-
-                            "",
-
-                            motivo_completo
-
-                        ).strip()
-
-
-                        motivo_limpio = (
-
-                            motivo_limpio
-
-                            if motivo_limpio
-
-                            else "-"
-
-                        )
-
-
-                    else:
-
-                        id_ticket = "-"
-
-                        motivo_limpio = (
-                            motivo_completo
-                        )
-
-
-                    datos_tabla.append(
-
-                        {
-
-                            "Fecha / Hora":
-                                fecha_fmt,
-
-                            "Operador Autorizado":
-                                registro.get(
-                                    "operador",
-                                    "-"
-                                ),
-
-                            "Id Ticket":
-                                id_ticket,
-
-                            "Motivo":
-                                motivo_limpio,
-
-                            "Usuario Aprobador ERP":
-                                registro.get(
-                                    "usuario",
-                                    "-"
-                                ),
-
-                            "Servidor / Ruta":
-                                registro.get(
-                                    "dominio_ruta",
-                                    "-"
-                                )
-
-                        }
-
-                    )
-
 
                 st.dataframe(
-
-                    datos_tabla,
-
+                    df,
                     width="stretch",
-
-                    hide_index=True,
-
-                    column_config={
-
-                        "Fecha / Hora":
-
-                            st.column_config.TextColumn(
-
-                                "Fecha / Hora",
-
-                                width="medium"
-
-                            ),
-
-
-                        "Operador Autorizado":
-
-                            st.column_config.TextColumn(
-
-                                "Operador Autorizado",
-
-                                width="medium"
-
-                            ),
-
-
-                        "Id Ticket":
-
-                            st.column_config.TextColumn(
-
-                                "Id Ticket",
-
-                                width="small"
-
-                            ),
-
-
-                        "Motivo":
-
-                            st.column_config.TextColumn(
-
-                                "Motivo",
-
-                                width="large"
-
-                            ),
-
-
-                        "Usuario Aprobador ERP":
-
-                            st.column_config.TextColumn(
-
-                                "Usuario Aprobador ERP",
-
-                                width="small"
-
-                            ),
-
-
-                        "Servidor / Ruta":
-
-                            st.column_config.TextColumn(
-
-                                "Servidor / Ruta",
-
-                                width="medium"
-
-                            )
-
-                    }
-
+                    hide_index=True
                 )
-
 
             else:
 
                 st.info(
-                    "Aún no hay registros en el historial."
+                    "No hay autorizaciones registradas."
                 )
-
 
         except Exception as e:
 
             st.warning(
-
                 f"No se pudo cargar el historial: {e}"
-
             )
 
 
-# =========================================================
-# EJECUCIÓN PRINCIPAL
-# =========================================================
+# ============================================================
+# ARRANQUE
+# ============================================================
 
 if not st.session_state.autenticado:
 
