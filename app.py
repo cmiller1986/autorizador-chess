@@ -14,6 +14,8 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import StaleElementReferenceException
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.chrome.service import Service as ChromeService
 
 
 # --- CONFIGURACIÓN DE PÁGINA ---
@@ -246,13 +248,10 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
     try:
         log_msg("Iniciando navegador Chrome optimizado...", placeholder_log, "INFO")
         
-        if sys.platform.startswith("linux"):
-            options.binary_location = "/usr/bin/chromium"
-            service = Service("/usr/bin/chromedriver")
-        else:
-            service = Service()
-            if sys.platform.startswith("win"):
-                service.creation_flags = 0x08000000
+        # Instalación e inicialización automática de ChromeDriver
+        service = ChromeService(ChromeDriverManager().install())
+        if sys.platform.startswith("win"):
+            service.creation_flags = 0x08000000
 
         driver = webdriver.Chrome(service=service, options=options)
         wait = WebDriverWait(driver, 20)
