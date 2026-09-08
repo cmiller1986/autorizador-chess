@@ -3089,4 +3089,3 @@ if not st.session_state.autenticado:
 else:
 
     vista_principal()
-```
