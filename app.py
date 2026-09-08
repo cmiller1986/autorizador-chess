@@ -4,6 +4,7 @@ import extra_streamlit_components as stx
 import re
 import time
 import sys
+import subprocess
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from supabase import create_client, Client
@@ -214,6 +215,13 @@ def buscar_autorizacion_reciente(dominio_ruta, minutos=10):
 def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, texto_mensaje, placeholder_log):
     st.session_state.log_ejecucion = []
     
+    # Asegurar binarios de Chromium en la instancia Linux de Streamlit Cloud
+    try:
+        log_msg("Verificando/Instalando binarios de Playwright Chromium...", placeholder_log, "INFO")
+        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
+    except Exception as e:
+        log_msg(f"Aviso durante verificación de Playwright: {e}", placeholder_log, "WARN")
+
     if dominio_ruta.startswith("http://") or dominio_ruta.startswith("https://"):
         url_base = dominio_ruta
     else:
