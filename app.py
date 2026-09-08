@@ -215,10 +215,10 @@ def buscar_autorizacion_reciente(dominio_ruta, minutos=10):
 def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, texto_mensaje, placeholder_log):
     st.session_state.log_ejecucion = []
     
-    # Asegurar binarios de Chromium en la instancia Linux de Streamlit Cloud
+    # Instalación de la shell headless liviana de Chromium
     try:
-        log_msg("Verificando/Instalando binarios de Playwright Chromium...", placeholder_log, "INFO")
-        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
+        log_msg("Verificando/Instalando Chromium Headless Shell...", placeholder_log, "INFO")
+        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium-headless-shell"], check=True)
     except Exception as e:
         log_msg(f"Aviso durante verificación de Playwright: {e}", placeholder_log, "WARN")
 
@@ -238,12 +238,16 @@ def automatizar_web(dominio_ruta, usuario, password, operador, motivo_final, tex
         with sync_playwright() as p:
             log_msg("Iniciando navegador Chromium optimizado (Playwright)...", placeholder_log, "INFO")
             
+            # Banderas críticas para prevenir 'TargetClosedError' en entornos serverless
             browser = p.chromium.launch(
                 headless=True,
                 args=[
                     "--no-sandbox",
+                    "--disable-setuid-sandbox",
                     "--disable-dev-shm-usage",
                     "--disable-gpu",
+                    "--no-zygote",
+                    "--single-process",
                     "--ignore-certificate-errors"
                 ]
             )
