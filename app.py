@@ -854,6 +854,15 @@ def vista_principal():
                 import pandas as pd
 
                 df = pd.DataFrame(resultado.data)
+
+                # Formatear la fecha a hora local de Argentina
+                if "created_at" in df.columns:
+                    df["created_at"] = (
+                        pd.to_datetime(df["created_at"])
+                        .dt.tz_convert("America/Argentina/Buenos_Aires")
+                        .dt.strftime("%Y-%m-%d %H:%M:%S")
+                    )
+
                 st.dataframe(df, use_container_width=True, hide_index=True)
             else:
                 st.info("No hay autorizaciones registradas.")
