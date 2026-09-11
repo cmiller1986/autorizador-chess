@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 import re
 import sys
-from zoneinfo import ZoneInfo
 import extra_streamlit_components as stx
 import requests
 import streamlit as st
@@ -158,7 +157,9 @@ for clave, valor in valores_iniciales.items():
 
 
 def ahora_argentina():
-    return datetime.now(ZoneInfo("America/Argentina/Buenos_Aires"))
+    # Offset fijo UTC-3 para Argentina
+    tz_ar = timezone(timedelta(hours=-3))
+    return datetime.now(tz_ar)
 
 
 def agregar_log(mensaje, nivel="INFO"):
@@ -298,9 +299,8 @@ def buscar_autorizacion_reciente(url):
                 )
 
                 if fecha_registro.tzinfo is None:
-                    fecha_registro = fecha_registro.replace(
-                        tzinfo=ZoneInfo("America/Argentina/Buenos_Aires")
-                    )
+                    tz_ar = timezone(timedelta(hours=-3))
+                    fecha_registro = fecha_registro.replace(tzinfo=tz_ar)
 
                 diferencia = ahora - fecha_registro
 
@@ -325,7 +325,7 @@ def extraer_y_actualizar(mensaje):
 
     texto = mensaje.strip()
 
-    # 1. ExtracciÂ¨Â®n de Operador
+    # 1. Extracci¨®n de Operador
     operador = ""
     patrones_operador = [
         r"^\s*([^,\n]+),\s*(?:\w+\s+)?\d{1,2}(?::\d{2}|\s*(?:min|minutos|mins?))?",
@@ -344,7 +344,7 @@ def extraer_y_actualizar(mensaje):
                 operador = op_candidate
                 break
 
-    # 2. ExtracciÂ¨Â®n de URL
+    # 2. Extracci¨®n de URL
     url_limpia = ""
     patron_url = r"((?:https?://)?[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?::\d+)?(?:/[^\s#?]*)?)"
     match_url = re.search(patron_url, texto, re.IGNORECASE)
@@ -358,7 +358,7 @@ def extraer_y_actualizar(mensaje):
 
         url_limpia = normalizar_url(raw_url)
 
-    # 3. ExtracciÂ¨Â®n de Ticket
+    # 3. Extracci¨®n de Ticket
     ticket = ""
     patrones_ticket = [
         r"Ticket\s*:\s*#?\s*(\d+)",
@@ -371,7 +371,7 @@ def extraer_y_actualizar(mensaje):
             ticket = f"#{match_ticket.group(1)}"
             break
 
-    # 4. ExtracciÂ¨Â®n de Motivo
+    # 4. Extracci¨®n de Motivo
     motivo = ""
     match_motivo = re.search(
         r"Motivo\s*:\s*(.+?)(?=\n|$)", texto, re.IGNORECASE
@@ -865,7 +865,6 @@ def vista_principal():
 # ARRANQUE
 # ============================================================
 
-# Verificar auto-login por cookies antes de decidir la vista
 if not st.session_state.autenticado:
     c_usr = cookie_manager.get("chess_usuario")
     c_pwd = cookie_manager.get("chess_password")
