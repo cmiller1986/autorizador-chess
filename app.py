@@ -791,6 +791,12 @@ def vista_principal():
 
             if correcto:
                 st.success("Autorizacion ejecutada correctamente.")
+                st.link_button(
+                    "Abrir ERP para validar acceso",
+                    normalizar_url(url),
+                    type="primary",
+                    use_container_width=True,
+                )
             else:
                 st.error("La autorizacion no pudo ejecutarse.")
 
