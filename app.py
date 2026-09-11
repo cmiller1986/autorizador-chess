@@ -304,7 +304,7 @@ def extraer_y_actualizar(mensaje):
 
     texto = mensaje.strip()
 
-    # 1. ExtracciÂ¨Â®n de Operador (soporta formato 'Nombre, miÂ¨Â¦ 8:36', 'Nombre, 14 min' o 'Enviado por Nombre')
+    # 1. Extracci¨®n de Operador
     operador = ""
     patrones_operador = [
         r"^\s*([^,\n]+),\s*(?:\w+\s+)?\d{1,2}(?::\d{2}|\s*(?:min|minutos|mins?))?",
@@ -316,7 +316,6 @@ def extraer_y_actualizar(mensaje):
         match = re.search(patron, texto, re.IGNORECASE)
         if match:
             op_candidate = match.group(1).strip()
-            # Limpiar posibles prefijos como 'Enviado por'
             op_candidate = re.sub(
                 r"^enviado\s+por\s+", "", op_candidate, flags=re.IGNORECASE
             )
@@ -324,7 +323,7 @@ def extraer_y_actualizar(mensaje):
                 operador = op_candidate
                 break
 
-    # 2. ExtracciÂ¨Â®n de URL (soporta URLs con http, https, o dominios directos como .chesserp.com o dyndns.org:8088)
+    # 2. Extracci¨®n de URL
     url_limpia = ""
     patron_url = r"((?:https?://)?[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?::\d+)?(?:/[^\s#?]*)?)"
     match_url = re.search(patron_url, texto, re.IGNORECASE)
@@ -332,7 +331,6 @@ def extraer_y_actualizar(mensaje):
     if match_url:
         raw_url = match_url.group(1).strip().rstrip(".,;")
 
-        # Si la URL viene pegada al texto previo (ej: WirthURL:http://...), extraemos desde 'http'
         if "http" in raw_url.lower():
             idx = raw_url.lower().find("http")
             raw_url = raw_url[idx:]
@@ -340,19 +338,18 @@ def extraer_y_actualizar(mensaje):
         if not raw_url.startswith(("http://", "https://")):
             raw_url = "https://" + raw_url
 
-        # Limpiar fragmentos de ruta
         raw_url = re.sub(r"/#.*$", "", raw_url)
         raw_url = re.sub(r"\?.*$", "", raw_url)
 
         url_limpia = raw_url.rstrip("/")
 
-    # 3. ExtracciÂ¨Â®n de Ticket
+    # 3. Extracci¨®n de Ticket
     ticket = ""
     match_ticket = re.search(r"Ticket\s*:\s*#?\s*(\d+)", texto, re.IGNORECASE)
     if match_ticket:
         ticket = f"#{match_ticket.group(1)}"
 
-    # 4. ExtracciÂ¨Â®n de Motivo
+    # 4. Extracci¨®n de Motivo
     motivo = ""
     match_motivo = re.search(
         r"Motivo\s*:\s*(.+?)(?=\n|$)", texto, re.IGNORECASE
@@ -362,7 +359,6 @@ def extraer_y_actualizar(mensaje):
     else:
         motivo = "Autorizacion de acceso solicitada"
 
-    # Actualizamos el estado de la aplicaciÂ¨Â®n
     st.session_state.in_dom = url_limpia
     st.session_state.in_op = operador
     st.session_state.in_tick = ticket
@@ -383,15 +379,14 @@ def extraer_y_actualizar(mensaje):
 # AUTOMATIZACION HTTP
 # ============================================================
 
+
 def automatizar_web(url, usuario, password, operador, detalle):
     limpiar_log()
 
-    # 1. Obtener la URL base limpia
     url_limpia = normalizar_url(url)
     match_base = re.match(r"(https?://[^/]+/[^/#]+)", url_limpia)
     url_base = match_base.group(1) if match_base else url_limpia
 
-    # 2. Endpoint real de autorizacion (confirmado por HAR)
     endpoint_autorizar = (
         f"{url_base.rstrip('/')}/web/api/soporte/v1/validarUsuarioAdmin"
     )
@@ -417,7 +412,6 @@ def automatizar_web(url, usuario, password, operador, detalle):
             else detalle
         )
 
-        # Payload real: nota el campo "pass" (no "password") y "detalle"
         payload = {
             "usuario": usuario,
             "pass": password,
@@ -435,10 +429,10 @@ def automatizar_web(url, usuario, password, operador, detalle):
 
         content_type = response.headers.get("content-type", "N/A")
         agregar_log(
-            f"POST -> status {response.status_code}, content-type: {content_type}",
+            f"POST -> status {response.status_code}, content-type:"
+            f" {content_type}",
             "DEBUG",
         )
-        agregar_log(f"Body: {response.text[:500]}", "DEBUG")
 
         try:
             data_respuesta = response.json()
@@ -446,7 +440,6 @@ def automatizar_web(url, usuario, password, operador, detalle):
             agregar_log(f"No se pudo parsear JSON: {e_json}", "ERROR")
             return False, "\n".join(st.session_state.log_ejecucion)
 
-        # El indicador real de exito es el array "error" vacio
         errores = data_respuesta.get("error", [])
 
         if response.status_code in [200, 201] and not errores:
@@ -468,6 +461,7 @@ def automatizar_web(url, usuario, password, operador, detalle):
     except Exception as e:
         agregar_log(f"ERROR DE CONEXION: {str(e)}", "ERROR")
         return False, "\n".join(st.session_state.log_ejecucion)
+
 
 def consultar_usuario(username):
     if supabase is None:
@@ -572,9 +566,6 @@ def vista_login():
                     usuario, password
                 )
                 if correcto:
-                    # Usar el campo "usuario" real de la BD (no el email
-                    # ingresado en el login), ya que es el que se envia
-                    # como "usuario" al autorizar en el ERP.
                     usuario_real = resultado.get("usuario", usuario)
 
                     st.session_state.autenticado = True
@@ -697,17 +688,22 @@ def vista_principal():
                 st.rerun()
 
     with col2:
-        if st.button("Limpiar", use_container_width=True):
+
+        def limpiar_todo():
+            st.session_state.mensaje_autorizacion = ""
             st.session_state.mensaje = ""
-            st.session_state.in_dom = ""
-            st.session_state.in_op = ""
-            st.session_state.in_tick = ""
-            st.session_state.in_mot = ""
             st.session_state.campo_operador = ""
             st.session_state.campo_ticket = ""
             st.session_state.campo_url = ""
             st.session_state.campo_motivo = ""
-            st.rerun()
+            st.session_state.in_dom = ""
+            st.session_state.in_op = ""
+            st.session_state.in_tick = ""
+            st.session_state.in_mot = ""
+
+        st.button(
+            "Limpiar", use_container_width=True, on_click=limpiar_todo
+        )
 
     # Datos Detectados
     st.subheader("Datos detectados")
