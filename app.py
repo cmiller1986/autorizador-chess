@@ -119,7 +119,7 @@ cookie_manager = stx.CookieManager(key="chess_cookie_manager")
 
 
 # ============================================================
-# SESSION STATE
+# SESSION STATE Y AUTO-LOGIN POR COOKIES
 # ============================================================
 
 valores_iniciales = {
@@ -150,6 +150,29 @@ Motivo: Gerente que no aparece
 for clave, valor in valores_iniciales.items():
     if clave not in st.session_state:
         st.session_state[clave] = valor
+
+# Intentar auto-login si existen cookies guardadas y no se ha autenticado
+if not st.session_state.autenticado:
+    usuario_guardado = cookie_manager.get("chess_usuario")
+    password_guardada = cookie_manager.get("chess_password")
+
+    if usuario_guardado and password_guardada:
+        correcto, resultado = consultar_usuario(usuario_guardado), True
+        # Se verifica credencial guardada
+        if correcto and resultado:
+            password_bd = (
+                resultado.get("password")
+                if isinstance(resultado, dict)
+                else None
+            )
+            if password_bd == password_guardada:
+                st.session_state.autenticado = True
+                st.session_state.usuario = (
+                    resultado.get("usuario", usuario_guardado)
+                    if isinstance(resultado, dict)
+                    else usuario_guardado
+                )
+                st.session_state.password = password_guardada
 
 
 # ============================================================
@@ -577,7 +600,7 @@ def vista_login():
         )
         recordar = st.checkbox(
             "Recordar credenciales y mantener sesion activa",
-            value=False,
+            value=True,
             key="recordar_login",
         )
 
@@ -597,12 +620,16 @@ def vista_login():
 
                     if recordar:
                         try:
+                            expiracion = ahora_argentina() + timedelta(days=30)
                             cookie_manager.set(
                                 "chess_usuario",
                                 usuario_real,
-                                expires_at=(
-                                    ahora_argentina() + timedelta(days=30)
-                                ),
+                                expires_at=expiracion,
+                            )
+                            cookie_manager.set(
+                                "chess_password",
+                                password,
+                                expires_at=expiracion,
                             )
                         except Exception:
                             pass
@@ -650,6 +677,7 @@ def cerrar_sesion():
 
     try:
         cookie_manager.delete("chess_usuario")
+        cookie_manager.delete("chess_password")
     except Exception:
         pass
 
