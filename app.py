@@ -182,7 +182,29 @@ def normalizar_url(url):
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
 
-    return url.rstrip("/")
+    url = url.rstrip("/")
+
+    # Detectar y resolver automaticamente la ruta interna/instancia (ej. /AR552) si viene la URL corta
+    match_ruta = re.search(r"chesserp\.com/([a-zA-Z0-9]+)", url, re.IGNORECASE)
+    if not match_ruta and "chesserp.com" in url.lower():
+        try:
+            session_resolve = requests.Session()
+            session_resolve.headers.update({
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                    " (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                )
+            })
+            res = session_resolve.get(
+                url, verify=False, timeout=5, allow_redirects=True
+            )
+            url_final = res.url.split("/#")[0].split("?")[0].rstrip("/")
+            if url_final and url_final != url:
+                return url_final
+        except Exception:
+            pass
+
+    return url
 
 
 def obtener_dominio(url):
@@ -304,7 +326,7 @@ def extraer_y_actualizar(mensaje):
 
     texto = mensaje.strip()
 
-    # 1. Extracci¨®n de Operador
+    # 1. Extracción de Operador
     operador = ""
     patrones_operador = [
         r"^\s*([^,\n]+),\s*(?:\w+\s+)?\d{1,2}(?::\d{2}|\s*(?:min|minutos|mins?))?",
@@ -323,7 +345,7 @@ def extraer_y_actualizar(mensaje):
                 operador = op_candidate
                 break
 
-    # 2. Extracci¨®n de URL
+    # 2. Extracción de URL (con normalizacion para autocompletar puerto/instancia)
     url_limpia = ""
     patron_url = r"((?:https?://)?[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?::\d+)?(?:/[^\s#?]*)?)"
     match_url = re.search(patron_url, texto, re.IGNORECASE)
@@ -335,21 +357,22 @@ def extraer_y_actualizar(mensaje):
             idx = raw_url.lower().find("http")
             raw_url = raw_url[idx:]
 
-        if not raw_url.startswith(("http://", "https://")):
-            raw_url = "https://" + raw_url
+        url_limpia = normalizar_url(raw_url)
 
-        raw_url = re.sub(r"/#.*$", "", raw_url)
-        raw_url = re.sub(r"\?.*$", "", raw_url)
-
-        url_limpia = raw_url.rstrip("/")
-
-    # 3. Extracci¨®n de Ticket
+    # 3. Extracción de Ticket (Soporta 'Ticket: #515082', 'Ticket: 515082' o '#515082' suelto)
     ticket = ""
-    match_ticket = re.search(r"Ticket\s*:\s*#?\s*(\d+)", texto, re.IGNORECASE)
-    if match_ticket:
-        ticket = f"#{match_ticket.group(1)}"
+    patrones_ticket = [
+        r"Ticket\s*:\s*#?\s*(\d+)",
+        r"(?:^|\s)#(\d{5,7})(?=\s|$|\n)",
+    ]
 
-    # 4. Extracci¨®n de Motivo
+    for patron in patrones_ticket:
+        match_ticket = re.search(patron, texto, re.IGNORECASE)
+        if match_ticket:
+            ticket = f"#{match_ticket.group(1)}"
+            break
+
+    # 4. Extracción de Motivo
     motivo = ""
     match_motivo = re.search(
         r"Motivo\s*:\s*(.+?)(?=\n|$)", texto, re.IGNORECASE
@@ -447,7 +470,7 @@ def automatizar_web(url, usuario, password, operador, detalle):
 
             registrar_en_historial(
                 operador=operador,
-                url=url,
+                url=url_limpia,
                 ticket=st.session_state.in_tick,
                 motivo=detalle,
                 usuario_app=st.session_state.usuario,
