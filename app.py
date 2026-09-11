@@ -119,7 +119,7 @@ cookie_manager = stx.CookieManager(key="chess_cookie_manager")
 
 
 # ============================================================
-# SESSION STATE Y AUTO-LOGIN POR COOKIES
+# SESSION STATE
 # ============================================================
 
 valores_iniciales = {
@@ -150,29 +150,6 @@ Motivo: Gerente que no aparece
 for clave, valor in valores_iniciales.items():
     if clave not in st.session_state:
         st.session_state[clave] = valor
-
-# Intentar auto-login si existen cookies guardadas y no se ha autenticado
-if not st.session_state.autenticado:
-    usuario_guardado = cookie_manager.get("chess_usuario")
-    password_guardada = cookie_manager.get("chess_password")
-
-    if usuario_guardado and password_guardada:
-        correcto, resultado = consultar_usuario(usuario_guardado), True
-        # Se verifica credencial guardada
-        if correcto and resultado:
-            password_bd = (
-                resultado.get("password")
-                if isinstance(resultado, dict)
-                else None
-            )
-            if password_bd == password_guardada:
-                st.session_state.autenticado = True
-                st.session_state.usuario = (
-                    resultado.get("usuario", usuario_guardado)
-                    if isinstance(resultado, dict)
-                    else usuario_guardado
-                )
-                st.session_state.password = password_guardada
 
 
 # ============================================================
@@ -207,7 +184,6 @@ def normalizar_url(url):
 
     url = url.rstrip("/")
 
-    # Detectar y resolver automaticamente la ruta interna/instancia (ej. /AR552) si viene la URL corta
     match_ruta = re.search(r"chesserp\.com/([a-zA-Z0-9]+)", url, re.IGNORECASE)
     if not match_ruta and "chesserp.com" in url.lower():
         try:
@@ -349,7 +325,7 @@ def extraer_y_actualizar(mensaje):
 
     texto = mensaje.strip()
 
-    # 1. Extracci贸n de Operador
+    # 1. Extracción de Operador
     operador = ""
     patrones_operador = [
         r"^\s*([^,\n]+),\s*(?:\w+\s+)?\d{1,2}(?::\d{2}|\s*(?:min|minutos|mins?))?",
@@ -368,7 +344,7 @@ def extraer_y_actualizar(mensaje):
                 operador = op_candidate
                 break
 
-    # 2. Extracci贸n de URL (con normalizacion para autocompletar puerto/instancia)
+    # 2. Extracción de URL
     url_limpia = ""
     patron_url = r"((?:https?://)?[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?::\d+)?(?:/[^\s#?]*)?)"
     match_url = re.search(patron_url, texto, re.IGNORECASE)
@@ -382,7 +358,7 @@ def extraer_y_actualizar(mensaje):
 
         url_limpia = normalizar_url(raw_url)
 
-    # 3. Extracci贸n de Ticket (Soporta 'Ticket: #515082', 'Ticket: 515082' o '#515082' suelto)
+    # 3. Extracción de Ticket
     ticket = ""
     patrones_ticket = [
         r"Ticket\s*:\s*#?\s*(\d+)",
@@ -395,7 +371,7 @@ def extraer_y_actualizar(mensaje):
             ticket = f"#{match_ticket.group(1)}"
             break
 
-    # 4. Extracci贸n de Motivo
+    # 4. Extracción de Motivo
     motivo = ""
     match_motivo = re.search(
         r"Motivo\s*:\s*(.+?)(?=\n|$)", texto, re.IGNORECASE
@@ -888,6 +864,18 @@ def vista_principal():
 # ============================================================
 # ARRANQUE
 # ============================================================
+
+# Verificar auto-login por cookies antes de decidir la vista
+if not st.session_state.autenticado:
+    c_usr = cookie_manager.get("chess_usuario")
+    c_pwd = cookie_manager.get("chess_password")
+    if c_usr and c_pwd:
+        usr_info = consultar_usuario(c_usr)
+        if usr_info and usr_info.get("password") == c_pwd:
+            st.session_state.autenticado = True
+            st.session_state.usuario = usr_info.get("usuario", c_usr)
+            st.session_state.password = c_pwd
+            st.rerun()
 
 if not st.session_state.autenticado:
     vista_login()
