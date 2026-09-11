@@ -572,15 +572,20 @@ def vista_login():
                     usuario, password
                 )
                 if correcto:
+                    # Usar el campo "usuario" real de la BD (no el email
+                    # ingresado en el login), ya que es el que se envia
+                    # como "usuario" al autorizar en el ERP.
+                    usuario_real = resultado.get("usuario", usuario)
+
                     st.session_state.autenticado = True
-                    st.session_state.usuario = usuario
+                    st.session_state.usuario = usuario_real
                     st.session_state.password = password
 
                     if recordar:
                         try:
                             cookie_manager.set(
                                 "chess_usuario",
-                                usuario,
+                                usuario_real,
                                 expires_at=(
                                     ahora_argentina() + timedelta(days=30)
                                 ),
