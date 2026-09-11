@@ -855,13 +855,14 @@ def vista_principal():
 
                 df = pd.DataFrame(resultado.data)
 
-                # Formatear la fecha a hora local de Argentina
+                # Formatear la fecha a hora local de Argentina y renombrar columna
                 if "created_at" in df.columns:
                     df["created_at"] = (
                         pd.to_datetime(df["created_at"])
                         .dt.tz_convert("America/Argentina/Buenos_Aires")
                         .dt.strftime("%Y-%m-%d %H:%M:%S")
                     )
+                    df = df.rename(columns={"created_at": "fecha y hora"})
 
                 st.dataframe(df, use_container_width=True, hide_index=True)
             else:
