@@ -325,7 +325,7 @@ def extraer_y_actualizar(mensaje):
 
     texto = mensaje.strip()
 
-    # 1. ExtracciÂ¨Â®n de Operador
+    # 1. ExtracciÃ‚Â¨Ã‚Â®n de Operador
     operador = ""
     patrones_operador = [
         r"^\s*([^,\n]+),\s*(?:\w+\s+)?\d{1,2}(?::\d{2}|\s*(?:min|minutos|mins?))?",
@@ -344,7 +344,7 @@ def extraer_y_actualizar(mensaje):
                 operador = op_candidate
                 break
 
-    # 2. ExtracciÂ¨Â®n de URL
+    # 2. ExtracciÃ‚Â¨Ã‚Â®n de URL
     url_limpia = ""
     patron_url = r"((?:https?://)?[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?::\d+)?(?:/[^\s#?]*)?)"
     match_url = re.search(patron_url, texto, re.IGNORECASE)
@@ -358,7 +358,7 @@ def extraer_y_actualizar(mensaje):
 
         url_limpia = normalizar_url(raw_url)
 
-    # 3. ExtracciÂ¨Â®n de Ticket
+    # 3. ExtracciÃ‚Â¨Ã‚Â®n de Ticket
     ticket = ""
     patrones_ticket = [
         r"Ticket\s*:\s*#?\s*(\d+)",
@@ -371,7 +371,7 @@ def extraer_y_actualizar(mensaje):
             ticket = f"#{match_ticket.group(1)}"
             break
 
-    # 4. ExtracciÂ¨Â®n de Motivo
+    # 4. ExtracciÃ‚Â¨Ã‚Â®n de Motivo
     motivo = ""
     match_motivo = re.search(
         r"Motivo\s*:\s*(.+?)(?=\n|$)", texto, re.IGNORECASE
@@ -450,7 +450,7 @@ def automatizar_web(url, usuario, password, operador, detalle):
         if endpoint_autorizar.startswith("https://"):
             endpoint_fallback = endpoint_autorizar.replace("https://", "http://")
             
-            # Cambiamos la URL de acceso final a HTTP para que el bot��n abra sin SSL
+            # Cambiamos la URL de acceso final a HTTP para que el bot¨®n abra sin SSL
             url_acceso_final = url_limpia.replace("https://", "http://")
             
             agregar_log(
@@ -826,7 +826,7 @@ def vista_principal():
             )
         else:
             with st.spinner("Ejecutando autorizacion en CHESS ERP..."):
-                # Capturamos la url_valida que devuelve el m��todo
+                # Capturamos la url_valida que devuelve el m¨¦todo
                 correcto, log, url_valida = automatizar_web(
                     url=url,
                     usuario=st.session_state.usuario,
