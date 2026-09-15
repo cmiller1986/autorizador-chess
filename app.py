@@ -406,16 +406,16 @@ def automatizar_web(url, usuario, password, operador, detalle):
     limpiar_log()
 
     url_limpia = normalizar_url(url)
-    match_base = re.match(r"(https?://[^/]+/[^/#]+)", url_limpia)
-    url_base = match_base.group(1) if match_base else url_limpia
+    
+    # 1. Extraer el esquema (http/https), host y puerto exactos
+    match_host = re.match(r"(https?://[^/]+)", url_limpia)
+    base_host = match_host.group(1) if match_host else url_limpia
 
-    endpoint_autorizar = (
-        f"{url_base.rstrip('/')}/web/api/soporte/v1/validarUsuarioAdmin"
-    )
+    # Endpoint base de la API
+    endpoint_path = "/web/api/soporte/v1/validarUsuarioAdmin"
+    endpoint_autorizar = f"{base_host.rstrip('/')}{endpoint_path}"
 
-    agregar_log(
-        f"Iniciando solicitud en API CHESS ERP: {endpoint_autorizar}..."
-    )
+    agregar_log(f"Iniciando solicitud en API CHESS ERP: {endpoint_autorizar}...")
 
     session = requests.Session()
     session.headers.update({
@@ -427,61 +427,77 @@ def automatizar_web(url, usuario, password, operador, detalle):
         "Accept": "application/json, text/plain, */*",
     })
 
+    motivo_final = (
+        f"{st.session_state.in_tick} {detalle}".strip()
+        if st.session_state.in_tick
+        else detalle
+    )
+
+    payload = {
+        "usuario": usuario,
+        "pass": password,
+        "operador": operador,
+        "detalle": motivo_final,
+    }
+
+    agregar_log(f"Enviando autorizacion para operador '{operador}'...")
+
+    # 2. Intento inicial de petici¨®n
     try:
-        motivo_final = (
-            f"{st.session_state.in_tick} {detalle}".strip()
-            if st.session_state.in_tick
-            else detalle
-        )
-
-        payload = {
-            "usuario": usuario,
-            "pass": password,
-            "operador": operador,
-            "detalle": motivo_final,
-        }
-
-        agregar_log(
-            f"Enviando autorizacion para operador '{operador}'..."
-        )
-
         response = session.post(
-            endpoint_autorizar, json=payload, verify=False, timeout=20
+            endpoint_autorizar, json=payload, verify=False, timeout=15
         )
-
-        content_type = response.headers.get("content-type", "N/A")
-        agregar_log(
-            f"POST -> status {response.status_code}, content-type:"
-            f" {content_type}",
-            "DEBUG",
-        )
-
-        try:
-            data_respuesta = response.json()
-        except Exception as e_json:
-            agregar_log(f"No se pudo parsear JSON: {e_json}", "ERROR")
-            return False, "\n".join(st.session_state.log_ejecucion)
-
-        errores = data_respuesta.get("error", [])
-
-        if response.status_code in [200, 201] and not errores:
-            agregar_log("AUTORIZACION COMPLETADA CON EXITO.", "OK")
-
-            registrar_en_historial(
-                operador=operador,
-                url=url_limpia,
-                ticket=st.session_state.in_tick,
-                motivo=detalle,
-                usuario_app=st.session_state.usuario,
+    except requests.exceptions.SSLError:
+        # Fallback si el puerto responde en HTTP en vez de HTTPS (WRONG_VERSION_NUMBER)
+        if endpoint_autorizar.startswith("https://"):
+            endpoint_fallback = endpoint_autorizar.replace("https://", "http://")
+            agregar_log(
+                f"Detectado HTTP en servidor remoto. Reintentando en: {endpoint_fallback}...",
+                "WARNING",
             )
-
-            return True, "\n".join(st.session_state.log_ejecucion)
+            try:
+                response = session.post(
+                    endpoint_fallback, json=payload, verify=False, timeout=15
+                )
+            except Exception as e_fallback:
+                agregar_log(f"ERROR DE CONEXION (HTTP): {str(e_fallback)}", "ERROR")
+                return False, "\n".join(st.session_state.log_ejecucion)
         else:
-            agregar_log(f"ERROR EN AUTORIZACION: {errores}", "ERROR")
+            agregar_log("Error SSL no recuperable.", "ERROR")
             return False, "\n".join(st.session_state.log_ejecucion)
-
     except Exception as e:
         agregar_log(f"ERROR DE CONEXION: {str(e)}", "ERROR")
+        return False, "\n".join(st.session_state.log_ejecucion)
+
+    # 3. Procesamiento de respuesta JSON
+    content_type = response.headers.get("content-type", "N/A")
+    agregar_log(
+        f"POST -> status {response.status_code}, content-type: {content_type}",
+        "DEBUG",
+    )
+
+    try:
+        data_respuesta = response.json()
+    except Exception as e_json:
+        agregar_log(f"No se pudo parsear JSON: {e_json}", "ERROR")
+        return False, "\n".join(st.session_state.log_ejecucion)
+
+    errores = data_respuesta.get("error", [])
+
+    if response.status_code in [200, 201] and not errores:
+        agregar_log("AUTORIZACION COMPLETADA CON EXITO.", "OK")
+
+        registrar_en_historial(
+            operador=operador,
+            url=url_limpia,
+            ticket=st.session_state.in_tick,
+            motivo=detalle,
+            usuario_app=st.session_state.usuario,
+        )
+
+        return True, "\n".join(st.session_state.log_ejecucion)
+    else:
+        agregar_log(f"ERROR EN AUTORIZACION: {errores}", "ERROR")
         return False, "\n".join(st.session_state.log_ejecucion)
 
 
