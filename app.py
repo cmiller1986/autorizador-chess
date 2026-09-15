@@ -406,14 +406,14 @@ def automatizar_web(url, usuario, password, operador, detalle):
     limpiar_log()
 
     url_limpia = normalizar_url(url)
-    
-    # 1. Extraer el esquema (http/https), host y puerto exactos
     match_host = re.match(r"(https?://[^/]+)", url_limpia)
     base_host = match_host.group(1) if match_host else url_limpia
 
-    # Endpoint base de la API
     endpoint_path = "/web/api/soporte/v1/validarUsuarioAdmin"
     endpoint_autorizar = f"{base_host.rstrip('/')}{endpoint_path}"
+    
+    # URL de retorno por defecto
+    url_acceso_final = url_limpia
 
     agregar_log(f"Iniciando solicitud en API CHESS ERP: {endpoint_autorizar}...")
 
@@ -442,15 +442,17 @@ def automatizar_web(url, usuario, password, operador, detalle):
 
     agregar_log(f"Enviando autorizacion para operador '{operador}'...")
 
-    # 2. Intento inicial de peticiÂ¨Â®n
     try:
         response = session.post(
             endpoint_autorizar, json=payload, verify=False, timeout=15
         )
     except requests.exceptions.SSLError:
-        # Fallback si el puerto responde en HTTP en vez de HTTPS (WRONG_VERSION_NUMBER)
         if endpoint_autorizar.startswith("https://"):
             endpoint_fallback = endpoint_autorizar.replace("https://", "http://")
+            
+            # Cambiamos la URL de acceso final a HTTP para que el bot¨®n abra sin SSL
+            url_acceso_final = url_limpia.replace("https://", "http://")
+            
             agregar_log(
                 f"Detectado HTTP en servidor remoto. Reintentando en: {endpoint_fallback}...",
                 "WARNING",
@@ -461,15 +463,14 @@ def automatizar_web(url, usuario, password, operador, detalle):
                 )
             except Exception as e_fallback:
                 agregar_log(f"ERROR DE CONEXION (HTTP): {str(e_fallback)}", "ERROR")
-                return False, "\n".join(st.session_state.log_ejecucion)
+                return False, "\n".join(st.session_state.log_ejecucion), url_acceso_final
         else:
             agregar_log("Error SSL no recuperable.", "ERROR")
-            return False, "\n".join(st.session_state.log_ejecucion)
+            return False, "\n".join(st.session_state.log_ejecucion), url_acceso_final
     except Exception as e:
         agregar_log(f"ERROR DE CONEXION: {str(e)}", "ERROR")
-        return False, "\n".join(st.session_state.log_ejecucion)
+        return False, "\n".join(st.session_state.log_ejecucion), url_acceso_final
 
-    # 3. Procesamiento de respuesta JSON
     content_type = response.headers.get("content-type", "N/A")
     agregar_log(
         f"POST -> status {response.status_code}, content-type: {content_type}",
@@ -480,7 +481,7 @@ def automatizar_web(url, usuario, password, operador, detalle):
         data_respuesta = response.json()
     except Exception as e_json:
         agregar_log(f"No se pudo parsear JSON: {e_json}", "ERROR")
-        return False, "\n".join(st.session_state.log_ejecucion)
+        return False, "\n".join(st.session_state.log_ejecucion), url_acceso_final
 
     errores = data_respuesta.get("error", [])
 
@@ -489,16 +490,16 @@ def automatizar_web(url, usuario, password, operador, detalle):
 
         registrar_en_historial(
             operador=operador,
-            url=url_limpia,
+            url=url_acceso_final,
             ticket=st.session_state.in_tick,
             motivo=detalle,
             usuario_app=st.session_state.usuario,
         )
 
-        return True, "\n".join(st.session_state.log_ejecucion)
+        return True, "\n".join(st.session_state.log_ejecucion), url_acceso_final
     else:
         agregar_log(f"ERROR EN AUTORIZACION: {errores}", "ERROR")
-        return False, "\n".join(st.session_state.log_ejecucion)
+        return False, "\n".join(st.session_state.log_ejecucion), url_acceso_final
 
 
 def consultar_usuario(username):
@@ -825,7 +826,8 @@ def vista_principal():
             )
         else:
             with st.spinner("Ejecutando autorizacion en CHESS ERP..."):
-                correcto, log = automatizar_web(
+                # Capturamos la url_valida que devuelve el m¨¦todo
+                correcto, log, url_valida = automatizar_web(
                     url=url,
                     usuario=st.session_state.usuario,
                     password=st.session_state.password,
@@ -835,9 +837,10 @@ def vista_principal():
 
             if correcto:
                 st.success("Autorizacion ejecutada correctamente.")
+                # Usamos url_valida (con http://) para redirigir sin error de SSL
                 st.link_button(
                     "Abrir ERP para validar acceso",
-                    normalizar_url(url),
+                    url_valida,
                     type="primary",
                     use_container_width=True,
                 )
