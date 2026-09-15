@@ -325,7 +325,7 @@ def extraer_y_actualizar(mensaje):
 
     texto = mensaje.strip()
 
-    # 1. ExtracciÃ‚Â¨Ã‚Â®n de Operador
+    # 1. Extracci¨®n de Operador
     operador = ""
     patrones_operador = [
         r"^\s*([^,\n]+),\s*(?:\w+\s+)?\d{1,2}(?::\d{2}|\s*(?:min|minutos|mins?))?",
@@ -344,7 +344,7 @@ def extraer_y_actualizar(mensaje):
                 operador = op_candidate
                 break
 
-    # 2. ExtracciÃ‚Â¨Ã‚Â®n de URL
+    # 2. Extracci¨®n de URL
     url_limpia = ""
     patron_url = r"((?:https?://)?[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?::\d+)?(?:/[^\s#?]*)?)"
     match_url = re.search(patron_url, texto, re.IGNORECASE)
@@ -358,7 +358,7 @@ def extraer_y_actualizar(mensaje):
 
         url_limpia = normalizar_url(raw_url)
 
-    # 3. ExtracciÃ‚Â¨Ã‚Â®n de Ticket
+    # 3. Extracci¨®n de Ticket
     ticket = ""
     patrones_ticket = [
         r"Ticket\s*:\s*#?\s*(\d+)",
@@ -371,7 +371,7 @@ def extraer_y_actualizar(mensaje):
             ticket = f"#{match_ticket.group(1)}"
             break
 
-    # 4. ExtracciÃ‚Â¨Ã‚Â®n de Motivo
+    # 4. Extracci¨®n de Motivo
     motivo = ""
     match_motivo = re.search(
         r"Motivo\s*:\s*(.+?)(?=\n|$)", texto, re.IGNORECASE
@@ -406,13 +406,14 @@ def automatizar_web(url, usuario, password, operador, detalle):
     limpiar_log()
 
     url_limpia = normalizar_url(url)
-    match_host = re.match(r"(https?://[^/]+)", url_limpia)
-    base_host = match_host.group(1) if match_host else url_limpia
+    
+    # Preservar dominio, puerto e instancia base (ej. https://transve.chesserp.com/AR467)
+    match_instancia = re.match(r"(https?://[^/]+(?:/[a-zA-Z0-9_-]+)?)", url_limpia)
+    url_base_instancia = match_instancia.group(1) if match_instancia else url_limpia
 
     endpoint_path = "/web/api/soporte/v1/validarUsuarioAdmin"
-    endpoint_autorizar = f"{base_host.rstrip('/')}{endpoint_path}"
+    endpoint_autorizar = f"{url_base_instancia.rstrip('/')}{endpoint_path}"
     
-    # URL de retorno por defecto
     url_acceso_final = url_limpia
 
     agregar_log(f"Iniciando solicitud en API CHESS ERP: {endpoint_autorizar}...")
@@ -448,10 +449,8 @@ def automatizar_web(url, usuario, password, operador, detalle):
         )
     except requests.exceptions.SSLError:
         if endpoint_autorizar.startswith("https://"):
-            endpoint_fallback = endpoint_autorizar.replace("https://", "http://")
-            
-            # Cambiamos la URL de acceso final a HTTP para que el bot¨®n abra sin SSL
-            url_acceso_final = url_limpia.replace("https://", "http://")
+            endpoint_fallback = endpoint_autorizar.replace("https://", "http://", 1)
+            url_acceso_final = url_limpia.replace("https://", "http://", 1)
             
             agregar_log(
                 f"Detectado HTTP en servidor remoto. Reintentando en: {endpoint_fallback}...",
@@ -476,6 +475,19 @@ def automatizar_web(url, usuario, password, operador, detalle):
         f"POST -> status {response.status_code}, content-type: {content_type}",
         "DEBUG",
     )
+
+    if "text/html" in content_type.lower():
+        title_match = re.search(r"<title>(.*?)</title>", response.text, re.IGNORECASE)
+        titulo_pagina = title_match.group(1).strip() if title_match else "P¨¢gina HTML"
+        agregar_log(
+            f"El servidor respondi¨® HTML ('{titulo_pagina}') en lugar de JSON.",
+            "ERROR",
+        )
+        agregar_log(
+            "Verifica si la instancia/URL es correcta para este cliente.",
+            "WARNING",
+        )
+        return False, "\n".join(st.session_state.log_ejecucion), url_acceso_final
 
     try:
         data_respuesta = response.json()
@@ -826,7 +838,6 @@ def vista_principal():
             )
         else:
             with st.spinner("Ejecutando autorizacion en CHESS ERP..."):
-                # Capturamos la url_valida que devuelve el m¨¦todo
                 correcto, log, url_valida = automatizar_web(
                     url=url,
                     usuario=st.session_state.usuario,
@@ -837,7 +848,6 @@ def vista_principal():
 
             if correcto:
                 st.success("Autorizacion ejecutada correctamente.")
-                # Usamos url_valida (con http://) para redirigir sin error de SSL
                 st.link_button(
                     "Abrir ERP para validar acceso",
                     url_valida,
