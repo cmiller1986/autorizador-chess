@@ -722,7 +722,7 @@ def vista_principal():
         unsafe_allow_html=True,
     )
 
-    # Mensaje
+    # Mensaje de Entrada
     st.subheader("Mensaje de autorizacion")
     mensaje = st.text_area(
         "Pega aqui el mensaje recibido:",
@@ -744,7 +744,6 @@ def vista_principal():
                 st.rerun()
 
     with col2:
-
         def limpiar_todo():
             st.session_state.mensaje_autorizacion = ""
             st.session_state.mensaje = ""
@@ -761,23 +760,44 @@ def vista_principal():
             "Limpiar", use_container_width=True, on_click=limpiar_todo
         )
 
-    # Datos Detectados
+    # Datos Detectados (Ajuste clave: inclusi¨®n de par¨¢metro 'value')
     st.subheader("Datos detectados")
     col1, col2 = st.columns(2)
 
     with col1:
-        operador = st.text_input("Operador", key="campo_operador")
-        ticket = st.text_input("Ticket", key="campo_ticket")
+        operador = st.text_input(
+            "Operador *", 
+            value=st.session_state.get("campo_operador", ""), 
+            key="input_operador"
+        )
+        ticket = st.text_input(
+            "Ticket", 
+            value=st.session_state.get("campo_ticket", ""), 
+            key="input_ticket"
+        )
 
     with col2:
-        url = st.text_input("URL", key="campo_url")
-        motivo = st.text_area("Motivo", height=100, key="campo_motivo")
+        url = st.text_input(
+            "URL *", 
+            value=st.session_state.get("campo_url", ""), 
+            key="input_url"
+        )
+        motivo = st.text_area(
+            "Motivo *", 
+            value=st.session_state.get("campo_motivo", ""), 
+            height=100, 
+            key="input_motivo"
+        )
 
-    # Sincronizar estado auxiliar
+    # Actualizar Session State din¨¢micamente con lo que ingrese el usuario
     st.session_state.in_op = operador
     st.session_state.in_tick = ticket
     st.session_state.in_dom = url
     st.session_state.in_mot = motivo
+    st.session_state.campo_operador = operador
+    st.session_state.campo_ticket = ticket
+    st.session_state.campo_url = url
+    st.session_state.campo_motivo = motivo
 
     datos_completos = bool(operador.strip() and url.strip() and motivo.strip())
 
@@ -792,7 +812,7 @@ def vista_principal():
             unsafe_allow_html=True,
         )
 
-    # Autorizacion
+    # Ejecuci¨®n de Autorizaci¨®n
     st.subheader("Autorizacion")
     col1, col2 = st.columns(2)
 
@@ -859,7 +879,7 @@ def vista_principal():
 
             st.session_state.forzar_ejecucion = False
 
-    # Estado
+    # Consola de Estado
     st.subheader("Estado de Ejecucion")
     if st.session_state.log_ejecucion:
         log_texto = "\n".join(st.session_state.log_ejecucion)
@@ -867,7 +887,7 @@ def vista_principal():
     else:
         st.info("Todavia no se ejecuto ninguna automatizacion.")
 
-    # Historial
+    # Tabla de Historial Supabase
     st.subheader("Historial de autorizaciones")
     if supabase is not None:
         try:
@@ -884,7 +904,6 @@ def vista_principal():
 
                 df = pd.DataFrame(resultado.data)
 
-                # Formatear la fecha a hora local de Argentina y renombrar columna
                 if "created_at" in df.columns:
                     df["created_at"] = (
                         pd.to_datetime(df["created_at"])
