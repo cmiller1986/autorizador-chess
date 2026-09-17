@@ -325,7 +325,7 @@ def extraer_y_actualizar(mensaje):
 
     texto = mensaje.strip()
 
-    # 1. Extracci¨®n de Operador
+    # 1. ExtracciÂ¨Â®n de Operador
     operador = ""
     patrones_operador = [
         r"^\s*([^,\n]+),\s*(?:\w+\s+)?\d{1,2}(?::\d{2}|\s*(?:min|minutos|mins?))?",
@@ -344,7 +344,7 @@ def extraer_y_actualizar(mensaje):
                 operador = op_candidate
                 break
 
-    # 2. Extracci¨®n de URL
+    # 2. ExtracciÂ¨Â®n de URL
     url_limpia = ""
     patron_url = r"((?:https?://)?[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?::\d+)?(?:/[^\s#?]*)?)"
     match_url = re.search(patron_url, texto, re.IGNORECASE)
@@ -358,7 +358,7 @@ def extraer_y_actualizar(mensaje):
 
         url_limpia = normalizar_url(raw_url)
 
-    # 3. Extracci¨®n de Ticket
+    # 3. ExtracciÂ¨Â®n de Ticket
     ticket = ""
     patrones_ticket = [
         r"Ticket\s*:\s*#?\s*(\d+)",
@@ -371,7 +371,7 @@ def extraer_y_actualizar(mensaje):
             ticket = f"#{match_ticket.group(1)}"
             break
 
-    # 4. Extracci¨®n de Motivo
+    # 4. ExtracciÂ¨Â®n de Motivo
     motivo = ""
     match_motivo = re.search(
         r"Motivo\s*:\s*(.+?)(?=\n|$)", texto, re.IGNORECASE
@@ -478,9 +478,9 @@ def automatizar_web(url, usuario, password, operador, detalle):
 
     if "text/html" in content_type.lower():
         title_match = re.search(r"<title>(.*?)</title>", response.text, re.IGNORECASE)
-        titulo_pagina = title_match.group(1).strip() if title_match else "P¨¢gina HTML"
+        titulo_pagina = title_match.group(1).strip() if title_match else "PÂ¨Â¢gina HTML"
         agregar_log(
-            f"El servidor respondi¨® HTML ('{titulo_pagina}') en lugar de JSON.",
+            f"El servidor respondiÂ¨Â® HTML ('{titulo_pagina}') en lugar de JSON.",
             "ERROR",
         )
         agregar_log(
@@ -760,7 +760,7 @@ def vista_principal():
             "Limpiar", use_container_width=True, on_click=limpiar_todo
         )
 
-    # Datos Detectados (Ajuste clave: inclusi��n de par��metro 'value')
+    # Datos Detectados (Ajuste clave: inclusi¨®n de par¨¢metro 'value')
     st.subheader("Datos detectados")
     col1, col2 = st.columns(2)
 
@@ -789,7 +789,7 @@ def vista_principal():
             key="input_motivo"
         )
 
-    # Actualizar Session State din��micamente con lo que ingrese el usuario
+    # Actualizar Session State din¨¢micamente con lo que ingrese el usuario
     st.session_state.in_op = operador
     st.session_state.in_tick = ticket
     st.session_state.in_dom = url
@@ -812,7 +812,7 @@ def vista_principal():
             unsafe_allow_html=True,
         )
 
-    # Ejecuci��n de Autorizaci��n
+    # Ejecuci¨®n de Autorizaci¨®n
     st.subheader("Autorizacion")
     col1, col2 = st.columns(2)
 
