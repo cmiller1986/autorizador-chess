@@ -325,7 +325,7 @@ def extraer_y_actualizar(mensaje):
 
     texto = mensaje.strip()
 
-    # 1. ExtracciÂ¨Â®n de Operador
+    # 1. Extracci¨®n de Operador
     operador = ""
     patrones_operador = [
         r"^\s*([^,\n]+),\s*(?:\w+\s+)?\d{1,2}(?::\d{2}|\s*(?:min|minutos|mins?))?",
@@ -344,7 +344,7 @@ def extraer_y_actualizar(mensaje):
                 operador = op_candidate
                 break
 
-    # 2. ExtracciÂ¨Â®n de URL
+    # 2. Extracci¨®n de URL
     url_limpia = ""
     patron_url = r"((?:https?://)?[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?::\d+)?(?:/[^\s#?]*)?)"
     match_url = re.search(patron_url, texto, re.IGNORECASE)
@@ -358,7 +358,7 @@ def extraer_y_actualizar(mensaje):
 
         url_limpia = normalizar_url(raw_url)
 
-    # 3. ExtracciÂ¨Â®n de Ticket
+    # 3. Extracci¨®n de Ticket
     ticket = ""
     patrones_ticket = [
         r"Ticket\s*:\s*#?\s*(\d+)",
@@ -371,7 +371,7 @@ def extraer_y_actualizar(mensaje):
             ticket = f"#{match_ticket.group(1)}"
             break
 
-    # 4. ExtracciÂ¨Â®n de Motivo
+    # 4. Extracci¨®n de Motivo
     motivo = ""
     match_motivo = re.search(
         r"Motivo\s*:\s*(.+?)(?=\n|$)", texto, re.IGNORECASE
@@ -478,9 +478,9 @@ def automatizar_web(url, usuario, password, operador, detalle):
 
     if "text/html" in content_type.lower():
         title_match = re.search(r"<title>(.*?)</title>", response.text, re.IGNORECASE)
-        titulo_pagina = title_match.group(1).strip() if title_match else "PÂ¨Â¢gina HTML"
+        titulo_pagina = title_match.group(1).strip() if title_match else "P¨¢gina HTML"
         agregar_log(
-            f"El servidor respondiÂ¨Â® HTML ('{titulo_pagina}') en lugar de JSON.",
+            f"El servidor respondi¨® HTML ('{titulo_pagina}') en lugar de JSON.",
             "ERROR",
         )
         agregar_log(
@@ -722,7 +722,7 @@ def vista_principal():
         unsafe_allow_html=True,
     )
 
-    # Mensaje de Entrada
+    # Mensaje
     st.subheader("Mensaje de autorizacion")
     mensaje = st.text_area(
         "Pega aqui el mensaje recibido:",
@@ -744,6 +744,7 @@ def vista_principal():
                 st.rerun()
 
     with col2:
+
         def limpiar_todo():
             st.session_state.mensaje_autorizacion = ""
             st.session_state.mensaje = ""
@@ -760,44 +761,23 @@ def vista_principal():
             "Limpiar", use_container_width=True, on_click=limpiar_todo
         )
 
-    # Datos Detectados (Ajuste clave: inclusi¨®n de par¨¢metro 'value')
+    # Datos Detectados
     st.subheader("Datos detectados")
     col1, col2 = st.columns(2)
 
     with col1:
-        operador = st.text_input(
-            "Operador *", 
-            value=st.session_state.get("campo_operador", ""), 
-            key="input_operador"
-        )
-        ticket = st.text_input(
-            "Ticket", 
-            value=st.session_state.get("campo_ticket", ""), 
-            key="input_ticket"
-        )
+        operador = st.text_input("Operador", key="campo_operador")
+        ticket = st.text_input("Ticket", key="campo_ticket")
 
     with col2:
-        url = st.text_input(
-            "URL *", 
-            value=st.session_state.get("campo_url", ""), 
-            key="input_url"
-        )
-        motivo = st.text_area(
-            "Motivo *", 
-            value=st.session_state.get("campo_motivo", ""), 
-            height=100, 
-            key="input_motivo"
-        )
+        url = st.text_input("URL", key="campo_url")
+        motivo = st.text_area("Motivo", height=100, key="campo_motivo")
 
-    # Actualizar Session State din¨¢micamente con lo que ingrese el usuario
+    # Sincronizar estado auxiliar
     st.session_state.in_op = operador
     st.session_state.in_tick = ticket
     st.session_state.in_dom = url
     st.session_state.in_mot = motivo
-    st.session_state.campo_operador = operador
-    st.session_state.campo_ticket = ticket
-    st.session_state.campo_url = url
-    st.session_state.campo_motivo = motivo
 
     datos_completos = bool(operador.strip() and url.strip() and motivo.strip())
 
@@ -812,7 +792,7 @@ def vista_principal():
             unsafe_allow_html=True,
         )
 
-    # Ejecuci¨®n de Autorizaci¨®n
+    # Autorizacion
     st.subheader("Autorizacion")
     col1, col2 = st.columns(2)
 
@@ -879,7 +859,7 @@ def vista_principal():
 
             st.session_state.forzar_ejecucion = False
 
-    # Consola de Estado
+    # Estado
     st.subheader("Estado de Ejecucion")
     if st.session_state.log_ejecucion:
         log_texto = "\n".join(st.session_state.log_ejecucion)
@@ -887,7 +867,7 @@ def vista_principal():
     else:
         st.info("Todavia no se ejecuto ninguna automatizacion.")
 
-    # Tabla de Historial Supabase
+    # Historial
     st.subheader("Historial de autorizaciones")
     if supabase is not None:
         try:
@@ -904,6 +884,7 @@ def vista_principal():
 
                 df = pd.DataFrame(resultado.data)
 
+                # Formatear la fecha a hora local de Argentina y renombrar columna
                 if "created_at" in df.columns:
                     df["created_at"] = (
                         pd.to_datetime(df["created_at"])
