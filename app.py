@@ -1,12 +1,17 @@
 # -*- coding: utf-8 -*-
-from datetime import datetime, timedelta, timezone
 import json
 import re
 import sys
+from datetime import datetime, timedelta, timezone
+
 import extra_streamlit_components as stx
+import pandas as pd
 import requests
-import streamlit as st
+from requests.adapters import HTTPAdapter
 from supabase import Client, create_client
+from urllib3.util import Retry
+
+import streamlit as st
 
 # ============================================================
 # CONFIGURACION
@@ -157,16 +162,13 @@ for clave, valor in valores_iniciales.items():
 
 
 def ahora_argentina():
-    # Offset fijo UTC-3 para Argentina
     tz_ar = timezone(timedelta(hours=-3))
     return datetime.now(tz_ar)
 
 
 def agregar_log(mensaje, nivel="INFO"):
     hora = ahora_argentina().strftime("%H:%M:%S")
-
     registro = f"[{hora}] [{nivel}] {mensaje}"
-
     st.session_state.log_ejecucion.append(registro)
 
 
@@ -209,12 +211,9 @@ def normalizar_url(url):
 
 def obtener_dominio(url):
     url = normalizar_url(url)
-
     match = re.search(r"https?://([^/]+)", url, re.IGNORECASE)
-
     if match:
         return match.group(1).lower()
-
     return ""
 
 
@@ -274,22 +273,16 @@ def buscar_autorizacion_reciente(url):
             return None
 
         dominio_actual = obtener_dominio(url)
-
         ahora = ahora_argentina()
 
         for registro in resultado.data:
-
             url_registro = registro.get("dominio_ruta", "")
             dominio_registro = obtener_dominio(url_registro)
 
-            if not dominio_actual:
-                continue
-
-            if dominio_actual != dominio_registro:
+            if not dominio_actual or dominio_actual != dominio_registro:
                 continue
 
             fecha_texto = registro.get("created_at")
-
             if not fecha_texto:
                 continue
 
@@ -325,7 +318,7 @@ def extraer_y_actualizar(mensaje):
 
     texto = mensaje.strip()
 
-    # 1. Extracci穡簧n de Operador
+    # 1. Extracci車n de Operador
     operador = ""
     patrones_operador = [
         r"^\s*([^,\n]+),\s*(?:\w+\s+)?\d{1,2}(?::\d{2}|\s*(?:min|minutos|mins?))?",
@@ -344,21 +337,19 @@ def extraer_y_actualizar(mensaje):
                 operador = op_candidate
                 break
 
-    # 2. Extracci穡簧n de URL
+    # 2. Extracci車n de URL
     url_limpia = ""
     patron_url = r"((?:https?://)?[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?::\d+)?(?:/[^\s#?]*)?)"
     match_url = re.search(patron_url, texto, re.IGNORECASE)
 
     if match_url:
         raw_url = match_url.group(1).strip().rstrip(".,;")
-
         if "http" in raw_url.lower():
             idx = raw_url.lower().find("http")
             raw_url = raw_url[idx:]
-
         url_limpia = normalizar_url(raw_url)
 
-    # 3. Extracci穡簧n de Ticket
+    # 3. Extracci車n de Ticket
     ticket = ""
     patrones_ticket = [
         r"Ticket\s*:\s*#?\s*(\d+)",
@@ -371,7 +362,7 @@ def extraer_y_actualizar(mensaje):
             ticket = f"#{match_ticket.group(1)}"
             break
 
-    # 4. Extracci穡簧n de Motivo
+    # 4. Extracci車n de Motivo
     motivo = ""
     match_motivo = re.search(
         r"Motivo\s*:\s*(.+?)(?=\n|$)", texto, re.IGNORECASE
@@ -398,7 +389,7 @@ def extraer_y_actualizar(mensaje):
 
 
 # ============================================================
-# AUTOMATIZACION HTTP
+# AUTOMATIZACION HTTP CON MANEJO DE TIMEOUTS Y REINTENTOS
 # ============================================================
 
 
@@ -406,19 +397,29 @@ def automatizar_web(url, usuario, password, operador, detalle):
     limpiar_log()
 
     url_limpia = normalizar_url(url)
-    
-    # Preservar dominio, puerto e instancia base (ej. https://transve.chesserp.com/AR467)
+
     match_instancia = re.match(r"(https?://[^/]+(?:/[a-zA-Z0-9_-]+)?)", url_limpia)
     url_base_instancia = match_instancia.group(1) if match_instancia else url_limpia
 
     endpoint_path = "/web/api/soporte/v1/validarUsuarioAdmin"
     endpoint_autorizar = f"{url_base_instancia.rstrip('/')}{endpoint_path}"
-    
+
     url_acceso_final = url_limpia
 
     agregar_log(f"Iniciando solicitud en API CHESS ERP: {endpoint_autorizar}...")
 
+    # Configuraci車n de Sesi車n HTTP con Reintentos
     session = requests.Session()
+    retries = Retry(
+        total=2,
+        backoff_factor=1.5,
+        status_forcelist=[500, 502, 503, 504],
+        raise_on_status=False
+    )
+    adapter = HTTPAdapter(max_retries=retries)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+
     session.headers.update({
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
@@ -443,22 +444,25 @@ def automatizar_web(url, usuario, password, operador, detalle):
 
     agregar_log(f"Enviando autorizacion para operador '{operador}'...")
 
+    # Timeouts: (Conexi車n: 10s, Lectura/Respuesta: 25s)
+    TIMEOUT_CONFIG = (10, 25)
+
     try:
         response = session.post(
-            endpoint_autorizar, json=payload, verify=False, timeout=15
+            endpoint_autorizar, json=payload, verify=False, timeout=TIMEOUT_CONFIG
         )
     except requests.exceptions.SSLError:
         if endpoint_autorizar.startswith("https://"):
             endpoint_fallback = endpoint_autorizar.replace("https://", "http://", 1)
             url_acceso_final = url_limpia.replace("https://", "http://", 1)
-            
+
             agregar_log(
                 f"Detectado HTTP en servidor remoto. Reintentando en: {endpoint_fallback}...",
                 "WARNING",
             )
             try:
                 response = session.post(
-                    endpoint_fallback, json=payload, verify=False, timeout=15
+                    endpoint_fallback, json=payload, verify=False, timeout=TIMEOUT_CONFIG
                 )
             except Exception as e_fallback:
                 agregar_log(f"ERROR DE CONEXION (HTTP): {str(e_fallback)}", "ERROR")
@@ -466,6 +470,19 @@ def automatizar_web(url, usuario, password, operador, detalle):
         else:
             agregar_log("Error SSL no recuperable.", "ERROR")
             return False, "\n".join(st.session_state.log_ejecucion), url_acceso_final
+
+    except requests.exceptions.ConnectTimeout:
+        agregar_log("TIMEOUT DE CONEXION: El servidor remoto no respondi車 dentro del l赤mite asignado (10s).", "ERROR")
+        return False, "\n".join(st.session_state.log_ejecucion), url_acceso_final
+
+    except requests.exceptions.ReadTimeout:
+        agregar_log("TIMEOUT DE LECTURA: El servidor acept車 la conexi車n pero no envi車 respuesta a tiempo (25s).", "ERROR")
+        return False, "\n".join(st.session_state.log_ejecucion), url_acceso_final
+
+    except requests.exceptions.ConnectionError as err_conn:
+        agregar_log(f"ERROR DE CONEXION/RED: Servidor ca赤do o puerto bloqueado. ({err_conn})", "ERROR")
+        return False, "\n".join(st.session_state.log_ejecucion), url_acceso_final
+
     except Exception as e:
         agregar_log(f"ERROR DE CONEXION: {str(e)}", "ERROR")
         return False, "\n".join(st.session_state.log_ejecucion), url_acceso_final
@@ -478,9 +495,9 @@ def automatizar_web(url, usuario, password, operador, detalle):
 
     if "text/html" in content_type.lower():
         title_match = re.search(r"<title>(.*?)</title>", response.text, re.IGNORECASE)
-        titulo_pagina = title_match.group(1).strip() if title_match else "P穡瞽gina HTML"
+        titulo_pagina = title_match.group(1).strip() if title_match else "P芍gina HTML"
         agregar_log(
-            f"El servidor respondi穡簧 HTML ('{titulo_pagina}') en lugar de JSON.",
+            f"El servidor respondi車 HTML ('{titulo_pagina}') en lugar de JSON.",
             "ERROR",
         )
         agregar_log(
@@ -880,11 +897,8 @@ def vista_principal():
             )
 
             if resultado.data:
-                import pandas as pd
-
                 df = pd.DataFrame(resultado.data)
 
-                # Formatear la fecha a hora local de Argentina y renombrar columna
                 if "created_at" in df.columns:
                     df["created_at"] = (
                         pd.to_datetime(df["created_at"])
