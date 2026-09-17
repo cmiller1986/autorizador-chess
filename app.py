@@ -318,7 +318,7 @@ def extraer_y_actualizar(mensaje):
 
     texto = mensaje.strip()
 
-    # 1. Extracci¨®n de Operador
+    # 1. ExtracciÂ¨Â®n de Operador
     operador = ""
     patrones_operador = [
         r"^\s*([^,\n]+),\s*(?:\w+\s+)?\d{1,2}(?::\d{2}|\s*(?:min|minutos|mins?))?",
@@ -337,7 +337,7 @@ def extraer_y_actualizar(mensaje):
                 operador = op_candidate
                 break
 
-    # 2. Extracci¨®n de URL
+    # 2. ExtracciÂ¨Â®n de URL
     url_limpia = ""
     patron_url = r"((?:https?://)?[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?::\d+)?(?:/[^\s#?]*)?)"
     match_url = re.search(patron_url, texto, re.IGNORECASE)
@@ -349,7 +349,7 @@ def extraer_y_actualizar(mensaje):
             raw_url = raw_url[idx:]
         url_limpia = normalizar_url(raw_url)
 
-    # 3. Extracci¨®n de Ticket
+    # 3. ExtracciÂ¨Â®n de Ticket
     ticket = ""
     patrones_ticket = [
         r"Ticket\s*:\s*#?\s*(\d+)",
@@ -362,7 +362,7 @@ def extraer_y_actualizar(mensaje):
             ticket = f"#{match_ticket.group(1)}"
             break
 
-    # 4. Extracci¨®n de Motivo
+    # 4. ExtracciÂ¨Â®n de Motivo
     motivo = ""
     match_motivo = re.search(
         r"Motivo\s*:\s*(.+?)(?=\n|$)", texto, re.IGNORECASE
@@ -408,7 +408,7 @@ def automatizar_web(url, usuario, password, operador, detalle):
 
     agregar_log(f"Iniciando solicitud en API CHESS ERP: {endpoint_autorizar}...")
 
-    # Configuraci¨®n de Sesi¨®n HTTP con Reintentos
+    # ConfiguraciÂ¨Â®n de SesiÂ¨Â®n HTTP con Reintentos
     session = requests.Session()
     retries = Retry(
         total=2,
@@ -444,7 +444,7 @@ def automatizar_web(url, usuario, password, operador, detalle):
 
     agregar_log(f"Enviando autorizacion para operador '{operador}'...")
 
-    # Timeouts: (Conexi¨®n: 10s, Lectura/Respuesta: 25s)
+    # Timeouts: (ConexiÂ¨Â®n: 10s, Lectura/Respuesta: 25s)
     TIMEOUT_CONFIG = (10, 25)
 
     try:
@@ -472,15 +472,15 @@ def automatizar_web(url, usuario, password, operador, detalle):
             return False, "\n".join(st.session_state.log_ejecucion), url_acceso_final
 
     except requests.exceptions.ConnectTimeout:
-        agregar_log("TIMEOUT DE CONEXION: El servidor remoto no respondi¨® dentro del l¨ªmite asignado (10s).", "ERROR")
+        agregar_log("TIMEOUT DE CONEXION: El servidor remoto no respondiÂ¨Â® dentro del lÂ¨Âªmite asignado (10s).", "ERROR")
         return False, "\n".join(st.session_state.log_ejecucion), url_acceso_final
 
     except requests.exceptions.ReadTimeout:
-        agregar_log("TIMEOUT DE LECTURA: El servidor acept¨® la conexi¨®n pero no envi¨® respuesta a tiempo (25s).", "ERROR")
+        agregar_log("TIMEOUT DE LECTURA: El servidor aceptÂ¨Â® la conexiÂ¨Â®n pero no enviÂ¨Â® respuesta a tiempo (25s).", "ERROR")
         return False, "\n".join(st.session_state.log_ejecucion), url_acceso_final
 
     except requests.exceptions.ConnectionError as err_conn:
-        agregar_log(f"ERROR DE CONEXION/RED: Servidor ca¨ªdo o puerto bloqueado. ({err_conn})", "ERROR")
+        agregar_log(f"ERROR DE CONEXION/RED: Servidor caÂ¨Âªdo o puerto bloqueado. ({err_conn})", "ERROR")
         return False, "\n".join(st.session_state.log_ejecucion), url_acceso_final
 
     except Exception as e:
@@ -495,9 +495,9 @@ def automatizar_web(url, usuario, password, operador, detalle):
 
     if "text/html" in content_type.lower():
         title_match = re.search(r"<title>(.*?)</title>", response.text, re.IGNORECASE)
-        titulo_pagina = title_match.group(1).strip() if title_match else "P¨¢gina HTML"
+        titulo_pagina = title_match.group(1).strip() if title_match else "PÂ¨Â¢gina HTML"
         agregar_log(
-            f"El servidor respondi¨® HTML ('{titulo_pagina}') en lugar de JSON.",
+            f"El servidor respondiÂ¨Â® HTML ('{titulo_pagina}') en lugar de JSON.",
             "ERROR",
         )
         agregar_log(
