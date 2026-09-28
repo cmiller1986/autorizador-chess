@@ -944,7 +944,7 @@ def vista_principal():
 
 
 # ============================================================
-# ARRANQUE / CONTROL DE COOKIES EN M¨®VILES
+# ARRANQUE / CONTROL DE COOKIES EN MÂ¨Â®VILES
 # ============================================================
 
 if not st.session_state.autenticado:
