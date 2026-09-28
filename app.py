@@ -2,6 +2,7 @@
 import json
 import re
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 
 import extra_streamlit_components as stx
@@ -116,10 +117,16 @@ supabase = inicializar_supabase()
 
 
 # ============================================================
-# COOKIE MANAGER
+# COOKIE MANAGER (Cacheado para estabilidad)
 # ============================================================
 
-cookie_manager = stx.CookieManager(key="chess_cookie_manager")
+
+@st.cache_resource(experimental_allow_widgets=True)
+def get_cookie_manager():
+    return stx.CookieManager(key="chess_cookie_manager")
+
+
+cookie_manager = get_cookie_manager()
 
 
 # ============================================================
@@ -143,6 +150,7 @@ valores_iniciales = {
     "campo_ticket": "",
     "campo_url": "",
     "campo_motivo": "",
+    "cookies_cargadas": False,
     "mensaje": """
 Roy Topping, 14 min
 URL: https://codenoa.chesserp.com/AR467
@@ -193,8 +201,9 @@ def normalizar_url(url):
             session_resolve = requests.Session()
             session_resolve.headers.update({
                 "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                    " (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+                    " AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0"
+                    " Safari/537.36"
                 )
             })
             res = session_resolve.get(
@@ -222,9 +231,7 @@ def obtener_dominio(url):
 # ============================================================
 
 
-def registrar_en_historial(
-    operador, url, ticket, motivo, usuario_app=None
-):
+def registrar_en_historial(operador, url, ticket, motivo, usuario_app=None):
     if supabase is None:
         return False
 
@@ -242,17 +249,13 @@ def registrar_en_historial(
         }
 
         resultado = (
-            supabase.table("historial_autorizaciones")
-            .insert(datos)
-            .execute()
+            supabase.table("historial_autorizaciones").insert(datos).execute()
         )
 
         return bool(resultado.data)
 
     except Exception as e:
-        agregar_log(
-            f"No se pudo registrar historial: {e}", "WARNING"
-        )
+        agregar_log(f"No se pudo registrar historial: {e}", "WARNING")
         return False
 
 
@@ -306,9 +309,7 @@ def buscar_autorizacion_reciente(url):
         return None
 
     except Exception as e:
-        agregar_log(
-            f"Error consultando historial: {e}", "WARNING"
-        )
+        agregar_log(f"Error consultando historial: {e}", "WARNING")
         return None
 
 
@@ -318,10 +319,11 @@ def extraer_y_actualizar(mensaje):
 
     texto = mensaje.strip()
 
-    # 1. Extracci¨®n de Operador
     operador = ""
     patrones_operador = [
-        r"^\s*([^,\n]+),\s*(?:\w+\s+)?\d{1,2}(?::\d{2}|\s*(?:min|minutos|mins?))?",
+        (
+            r"^\s*([^,\n]+),\s*(?:\w+\s+)?\d{1,2}(?::\d{2}|\s*(?:min|minutos|mins?))?"
+        ),
         r"(?:operador|usuario|solicitante|enviado por)\s*:\s*(.+?)(?=\n|$)",
         r"^\s*([^,\n]+),",
     ]
@@ -337,7 +339,6 @@ def extraer_y_actualizar(mensaje):
                 operador = op_candidate
                 break
 
-    # 2. Extracci¨®n de URL
     url_limpia = ""
     patron_url = r"((?:https?://)?[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?::\d+)?(?:/[^\s#?]*)?)"
     match_url = re.search(patron_url, texto, re.IGNORECASE)
@@ -349,7 +350,6 @@ def extraer_y_actualizar(mensaje):
             raw_url = raw_url[idx:]
         url_limpia = normalizar_url(raw_url)
 
-    # 3. Extracci¨®n de Ticket
     ticket = ""
     patrones_ticket = [
         r"Ticket\s*:\s*#?\s*(\d+)",
@@ -362,11 +362,8 @@ def extraer_y_actualizar(mensaje):
             ticket = f"#{match_ticket.group(1)}"
             break
 
-    # 4. Extracci¨®n de Motivo
     motivo = ""
-    match_motivo = re.search(
-        r"Motivo\s*:\s*(.+?)(?=\n|$)", texto, re.IGNORECASE
-    )
+    match_motivo = re.search(r"Motivo\s*:\s*(.+?)(?=\n|$)", texto, re.IGNORECASE)
     if match_motivo and match_motivo.group(1).strip():
         motivo = match_motivo.group(1).strip()
     else:
@@ -398,8 +395,12 @@ def automatizar_web(url, usuario, password, operador, detalle):
 
     url_limpia = normalizar_url(url)
 
-    match_instancia = re.match(r"(https?://[^/]+(?:/[a-zA-Z0-9_-]+)?)", url_limpia)
-    url_base_instancia = match_instancia.group(1) if match_instancia else url_limpia
+    match_instancia = re.match(
+        r"(https?://[^/]+(?:/[a-zA-Z0-9_-]+)?)", url_limpia
+    )
+    url_base_instancia = (
+        match_instancia.group(1) if match_instancia else url_limpia
+    )
 
     endpoint_path = "/web/api/soporte/v1/validarUsuarioAdmin"
     endpoint_autorizar = f"{url_base_instancia.rstrip('/')}{endpoint_path}"
@@ -408,13 +409,12 @@ def automatizar_web(url, usuario, password, operador, detalle):
 
     agregar_log(f"Iniciando solicitud en API CHESS ERP: {endpoint_autorizar}...")
 
-    # Configuraci¨®n de Sesi¨®n HTTP con Reintentos
     session = requests.Session()
     retries = Retry(
         total=2,
         backoff_factor=1.5,
         status_forcelist=[500, 502, 503, 504],
-        raise_on_status=False
+        raise_on_status=False,
     )
     adapter = HTTPAdapter(max_retries=retries)
     session.mount("http://", adapter)
@@ -444,43 +444,73 @@ def automatizar_web(url, usuario, password, operador, detalle):
 
     agregar_log(f"Enviando autorizacion para operador '{operador}'...")
 
-    # Timeouts: (Conexi¨®n: 10s, Lectura/Respuesta: 25s)
     TIMEOUT_CONFIG = (10, 25)
 
     try:
         response = session.post(
-            endpoint_autorizar, json=payload, verify=False, timeout=TIMEOUT_CONFIG
+            endpoint_autorizar,
+            json=payload,
+            verify=False,
+            timeout=TIMEOUT_CONFIG,
         )
     except requests.exceptions.SSLError:
         if endpoint_autorizar.startswith("https://"):
-            endpoint_fallback = endpoint_autorizar.replace("https://", "http://", 1)
+            endpoint_fallback = endpoint_autorizar.replace(
+                "https://", "http://", 1
+            )
             url_acceso_final = url_limpia.replace("https://", "http://", 1)
 
             agregar_log(
-                f"Detectado HTTP en servidor remoto. Reintentando en: {endpoint_fallback}...",
+                f"Detectado HTTP en servidor remoto. Reintentando en:"
+                f" {endpoint_fallback}...",
                 "WARNING",
             )
             try:
                 response = session.post(
-                    endpoint_fallback, json=payload, verify=False, timeout=TIMEOUT_CONFIG
+                    endpoint_fallback,
+                    json=payload,
+                    verify=False,
+                    timeout=TIMEOUT_CONFIG,
                 )
             except Exception as e_fallback:
-                agregar_log(f"ERROR DE CONEXION (HTTP): {str(e_fallback)}", "ERROR")
-                return False, "\n".join(st.session_state.log_ejecucion), url_acceso_final
+                agregar_log(
+                    f"ERROR DE CONEXION (HTTP): {str(e_fallback)}", "ERROR"
+                )
+                return (
+                    False,
+                    "\n".join(st.session_state.log_ejecucion),
+                    url_acceso_final,
+                )
         else:
             agregar_log("Error SSL no recuperable.", "ERROR")
-            return False, "\n".join(st.session_state.log_ejecucion), url_acceso_final
+            return (
+                False,
+                "\n".join(st.session_state.log_ejecucion),
+                url_acceso_final,
+            )
 
     except requests.exceptions.ConnectTimeout:
-        agregar_log("TIMEOUT DE CONEXION: El servidor remoto no respondi¨® dentro del l¨ªmite asignado (10s).", "ERROR")
+        agregar_log(
+            "TIMEOUT DE CONEXION: El servidor remoto no respondio dentro del"
+            " limite asignado (10s).",
+            "ERROR",
+        )
         return False, "\n".join(st.session_state.log_ejecucion), url_acceso_final
 
     except requests.exceptions.ReadTimeout:
-        agregar_log("TIMEOUT DE LECTURA: El servidor acept¨® la conexi¨®n pero no envi¨® respuesta a tiempo (25s).", "ERROR")
+        agregar_log(
+            "TIMEOUT DE LECTURA: El servidor acepto la conexion pero no envio"
+            " respuesta a tiempo (25s).",
+            "ERROR",
+        )
         return False, "\n".join(st.session_state.log_ejecucion), url_acceso_final
 
     except requests.exceptions.ConnectionError as err_conn:
-        agregar_log(f"ERROR DE CONEXION/RED: Servidor ca¨ªdo o puerto bloqueado. ({err_conn})", "ERROR")
+        agregar_log(
+            f"ERROR DE CONEXION/RED: Servidor caido o puerto bloqueado."
+            f" ({err_conn})",
+            "ERROR",
+        )
         return False, "\n".join(st.session_state.log_ejecucion), url_acceso_final
 
     except Exception as e:
@@ -494,10 +524,14 @@ def automatizar_web(url, usuario, password, operador, detalle):
     )
 
     if "text/html" in content_type.lower():
-        title_match = re.search(r"<title>(.*?)</title>", response.text, re.IGNORECASE)
-        titulo_pagina = title_match.group(1).strip() if title_match else "P¨¢gina HTML"
+        title_match = re.search(
+            r"<title>(.*?)</title>", response.text, re.IGNORECASE
+        )
+        titulo_pagina = (
+            title_match.group(1).strip() if title_match else "Pagina HTML"
+        )
         agregar_log(
-            f"El servidor respondi¨® HTML ('{titulo_pagina}') en lugar de JSON.",
+            f"El servidor respondio HTML ('{titulo_pagina}') en lugar de JSON.",
             "ERROR",
         )
         agregar_log(
@@ -630,9 +664,7 @@ def vista_login():
             if not usuario or not password:
                 st.error("Ingresa usuario y contrasena.")
             else:
-                correcto, resultado = autenticar_usuario(
-                    usuario, password
-                )
+                correcto, resultado = autenticar_usuario(usuario, password)
                 if correcto:
                     usuario_real = resultado.get("usuario", usuario)
 
@@ -642,18 +674,26 @@ def vista_login():
 
                     if recordar:
                         try:
-                            expiracion = ahora_argentina() + timedelta(days=30)
+                            # 1. Usar UTC y expiraci��n limpia a 30 d��as
+                            expiracion = datetime.now(timezone.utc) + timedelta(days=30)
+                            
+                            # 2. Setear cookies con key ��nico
                             cookie_manager.set(
                                 "chess_usuario",
                                 usuario_real,
                                 expires_at=expiracion,
+                                key="cookie_set_usr",
                             )
                             cookie_manager.set(
                                 "chess_password",
                                 password,
                                 expires_at=expiracion,
+                                key="cookie_set_pwd",
                             )
-                        except Exception:
+                            
+                            # 3. Dar margen a JavaScript en m��vil antes de recargar la p��gina
+                            time.sleep(0.3)
+                        except Exception as e_cook:
                             pass
 
                     st.success("Inicio de sesion correcto.")
@@ -698,8 +738,9 @@ def cerrar_sesion():
     st.session_state.password = ""
 
     try:
-        cookie_manager.delete("chess_usuario")
-        cookie_manager.delete("chess_password")
+        cookie_manager.delete("chess_usuario", key="del_usr")
+        cookie_manager.delete("chess_password", key="del_pwd")
+        time.sleep(0.2)
     except Exception:
         pass
 
@@ -790,7 +831,6 @@ def vista_principal():
         url = st.text_input("URL", key="campo_url")
         motivo = st.text_area("Motivo", height=100, key="campo_motivo")
 
-    # Sincronizar estado auxiliar
     st.session_state.in_op = operador
     st.session_state.in_tick = ticket
     st.session_state.in_dom = url
@@ -915,12 +955,16 @@ def vista_principal():
 
 
 # ============================================================
-# ARRANQUE
+# ARRANQUE / CONTROL DE COOKIES EN M��VILES
 # ============================================================
 
+# Intentar recuperar cookies
+cookies_dict = cookie_manager.get_all()
+
 if not st.session_state.autenticado:
-    c_usr = cookie_manager.get("chess_usuario")
-    c_pwd = cookie_manager.get("chess_password")
+    c_usr = cookies_dict.get("chess_usuario")
+    c_pwd = cookies_dict.get("chess_password")
+
     if c_usr and c_pwd:
         usr_info = consultar_usuario(c_usr)
         if usr_info and usr_info.get("password") == c_pwd:
@@ -929,6 +973,7 @@ if not st.session_state.autenticado:
             st.session_state.password = c_pwd
             st.rerun()
 
+# RENDER DE VISTAS
 if not st.session_state.autenticado:
     vista_login()
 else:
