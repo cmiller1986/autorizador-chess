@@ -117,10 +117,8 @@ supabase = inicializar_supabase()
 
 
 # ============================================================
-# COOKIE MANAGER (Cacheado para estabilidad)
+# COOKIE MANAGER
 # ============================================================
-
-
 
 cookie_manager = stx.CookieManager(key="chess_cookie_manager")
 
@@ -670,30 +668,26 @@ def vista_login():
 
                     if recordar:
                         try:
-                            # 1. Usar UTC y expiraci¨®n limpia a 30 d¨ªas
                             expiracion = datetime.now(timezone.utc) + timedelta(days=30)
-                            
-                            # 2. Setear cookies con key ¨²nico
+
                             cookie_manager.set(
                                 "chess_usuario",
                                 usuario_real,
                                 expires_at=expiracion,
+                                path="/",
                                 key="cookie_set_usr",
                             )
                             cookie_manager.set(
                                 "chess_password",
                                 password,
                                 expires_at=expiracion,
+                                path="/",
                                 key="cookie_set_pwd",
                             )
-                            
-                            # 3. Dar margen a JavaScript en m¨®vil antes de recargar la p¨¢gina
-                            time.sleep(0.3)
-                        except Exception as e_cook:
+                        except Exception:
                             pass
 
                     st.success("Inicio de sesion correcto.")
-                    st.rerun()
                 else:
                     st.error(resultado)
 
@@ -734,9 +728,8 @@ def cerrar_sesion():
     st.session_state.password = ""
 
     try:
-        cookie_manager.delete("chess_usuario", key="del_usr")
-        cookie_manager.delete("chess_password", key="del_pwd")
-        time.sleep(0.2)
+        cookie_manager.delete("chess_usuario", path="/", key="del_usr")
+        cookie_manager.delete("chess_password", path="/", key="del_pwd")
     except Exception:
         pass
 
@@ -951,23 +944,23 @@ def vista_principal():
 
 
 # ============================================================
-# ARRANQUE / CONTROL DE COOKIES EN M¨®VILES
+# ARRANQUE / CONTROL DE COOKIES EN M��VILES
 # ============================================================
 
-# Intentar recuperar cookies
-cookies_dict = cookie_manager.get_all()
-
 if not st.session_state.autenticado:
-    c_usr = cookies_dict.get("chess_usuario")
-    c_pwd = cookies_dict.get("chess_password")
+    try:
+        cookies_dict = cookie_manager.get_all()
+        c_usr = cookies_dict.get("chess_usuario")
+        c_pwd = cookies_dict.get("chess_password")
 
-    if c_usr and c_pwd:
-        usr_info = consultar_usuario(c_usr)
-        if usr_info and usr_info.get("password") == c_pwd:
-            st.session_state.autenticado = True
-            st.session_state.usuario = usr_info.get("usuario", c_usr)
-            st.session_state.password = c_pwd
-            st.rerun()
+        if c_usr and c_pwd:
+            usr_info = consultar_usuario(c_usr)
+            if usr_info and usr_info.get("password") == c_pwd:
+                st.session_state.autenticado = True
+                st.session_state.usuario = usr_info.get("usuario", c_usr)
+                st.session_state.password = c_pwd
+    except Exception:
+        pass
 
 # RENDER DE VISTAS
 if not st.session_state.autenticado:
