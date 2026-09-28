@@ -313,13 +313,13 @@ def extraer_y_actualizar(mensaje):
 
     texto = mensaje.strip()
 
+    # 1. Extracci¨®n de Operador (Soporta n¨²meros o palabras como "Ahora")
     operador = ""
     patrones_operador = [
-        (
-            r"^\s*([^,\n]+),\s*(?:\w+\s+)?\d{1,2}(?::\d{2}|\s*(?:min|minutos|mins?))?"
-        ),
+        # Captura lo que est¨¢ antes de la coma siempre que le siga un texto de tiempo (ej. Ahora, 14 min, etc.)
+        r"^\s*([^,\n]+),\s*(?:ahora|hace\s+\w+|\d{1,2}(?::\d{2}|\s*(?:min|minutos|mins?))?)",
         r"(?:operador|usuario|solicitante|enviado por)\s*:\s*(.+?)(?=\n|$)",
-        r"^\s*([^,\n]+),",
+        r"^\s*([^,\n]+),",  # Fallback gen¨¦rico: todo lo que est¨¦ antes de la primera coma
     ]
 
     for patron in patrones_operador:
@@ -333,8 +333,11 @@ def extraer_y_actualizar(mensaje):
                 operador = op_candidate
                 break
 
+    # 2. Extracci¨®n de URL
     url_limpia = ""
-    patron_url = r"((?:https?://)?[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?::\d+)?(?:/[^\s#?]*)?)"
+    patron_url = (
+        r"((?:https?://)?[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?::\d+)?(?:/[^\s#?]*)?)"
+    )
     match_url = re.search(patron_url, texto, re.IGNORECASE)
 
     if match_url:
@@ -344,6 +347,7 @@ def extraer_y_actualizar(mensaje):
             raw_url = raw_url[idx:]
         url_limpia = normalizar_url(raw_url)
 
+    # 3. Extracci¨®n de Ticket
     ticket = ""
     patrones_ticket = [
         r"Ticket\s*:\s*#?\s*(\d+)",
@@ -356,8 +360,11 @@ def extraer_y_actualizar(mensaje):
             ticket = f"#{match_ticket.group(1)}"
             break
 
+    # 4. Extracci¨®n de Motivo
     motivo = ""
-    match_motivo = re.search(r"Motivo\s*:\s*(.+?)(?=\n|$)", texto, re.IGNORECASE)
+    match_motivo = re.search(
+        r"Motivo\s*:\s*(.+?)(?=\n|$)", texto, re.IGNORECASE
+    )
     if match_motivo and match_motivo.group(1).strip():
         motivo = match_motivo.group(1).strip()
     else:
@@ -377,7 +384,6 @@ def extraer_y_actualizar(mensaje):
     st.session_state.url_autorizada_lista = bool(url_limpia and operador)
 
     return True
-
 
 # ============================================================
 # AUTOMATIZACION HTTP CON MANEJO DE TIMEOUTS Y REINTENTOS
@@ -944,7 +950,7 @@ def vista_principal():
 
 
 # ============================================================
-# ARRANQUE / CONTROL DE COOKIES EN M¨®VILES
+# ARRANQUE / CONTROL DE COOKIES EN MÂ¨Â®VILES
 # ============================================================
 
 if not st.session_state.autenticado:
