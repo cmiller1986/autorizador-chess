@@ -674,10 +674,10 @@ def vista_login():
 
                     if recordar:
                         try:
-                            # 1. Usar UTC y expiraci¨®n limpia a 30 d¨ªas
+                            # 1. Usar UTC y expiraciÂ¨Â®n limpia a 30 dÂ¨Âªas
                             expiracion = datetime.now(timezone.utc) + timedelta(days=30)
                             
-                            # 2. Setear cookies con key ¨²nico
+                            # 2. Setear cookies con key Â¨Â²nico
                             cookie_manager.set(
                                 "chess_usuario",
                                 usuario_real,
@@ -691,7 +691,7 @@ def vista_login():
                                 key="cookie_set_pwd",
                             )
                             
-                            # 3. Dar margen a JavaScript en m¨®vil antes de recargar la p¨¢gina
+                            # 3. Dar margen a JavaScript en mÂ¨Â®vil antes de recargar la pÂ¨Â¢gina
                             time.sleep(0.3)
                         except Exception as e_cook:
                             pass
@@ -955,7 +955,7 @@ def vista_principal():
 
 
 # ============================================================
-# ARRANQUE / CONTROL DE COOKIES EN M¨®VILES
+# ARRANQUE / CONTROL DE COOKIES EN MÂ¨Â®VILES
 # ============================================================
 
 # Intentar recuperar cookies
