@@ -311,10 +311,10 @@ def extraer_y_actualizar(mensaje):
     if not mensaje:
         return False
 
-    # 0. Limpieza previa de caracteres invisibles Unicode (NBSP \xa0)
+    # Limpieza de espacios no rompibles (caracteres invisibles)
     texto = mensaje.replace("\xa0", " ").replace("\r", "").strip()
 
-    # 1. Extraccion de Operador (Soporta nombres con acentos, tildes y marcas de tiempo)
+    # 1. Extraccion de Operador
     operador = ""
     patrones_operador = [
         r"^\s*([^,\n]+),\s*(?:ahora|justo\s+ahora|hace\s+\w+|\d{1,2}(?::\d{2}|\s*(?:min|minutos|mins?))?)",
@@ -333,7 +333,7 @@ def extraer_y_actualizar(mensaje):
                 operador = op_candidate
                 break
 
-    # 2. Extraccion de URL (Robusta contra espacios invisibles despues de 'URL:')
+    # 2. Extraccion de URL
     url_limpia = ""
     match_linea_url = re.search(r"URL\s*:\s*([^\s\n]+)", texto, re.IGNORECASE)
 
@@ -341,7 +341,9 @@ def extraer_y_actualizar(mensaje):
         raw_url = match_linea_url.group(1).strip().rstrip(".,;")
         url_limpia = normalizar_url(raw_url)
     else:
-        patron_url = r"((?:https?://)?[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?::\d+)?(?:/[^\s#?]*)?)"
+        patron_url = (
+            r"((?:https?://)?[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?::\d+)?(?:/[^\s#?]*)?)"
+        )
         match_url = re.search(patron_url, texto, re.IGNORECASE)
         if match_url:
             raw_url = match_url.group(1).strip().rstrip(".,;")
@@ -365,7 +367,9 @@ def extraer_y_actualizar(mensaje):
 
     # 4. Extraccion de Motivo
     motivo = ""
-    match_motivo = re.search(r"Motivo\s*:\s*(.+?)(?=\n|$)", texto, re.IGNORECASE)
+    match_motivo = re.search(
+        r"Motivo\s*:\s*(.+?)(?=\n|$)", texto, re.IGNORECASE
+    )
     if match_motivo and match_motivo.group(1).strip():
         motivo = match_motivo.group(1).strip()
     else:
@@ -385,6 +389,7 @@ def extraer_y_actualizar(mensaje):
     st.session_state.url_autorizada_lista = bool(url_limpia and operador)
 
     return True
+
 
 # ============================================================
 # AUTOMATIZACION HTTP CON MANEJO DE TIMEOUTS Y REINTENTOS
@@ -951,7 +956,7 @@ def vista_principal():
 
 
 # ============================================================
-# ARRANQUE / CONTROL DE COOKIES EN MÂ¨Â®VILES
+# ARRANQUE / CONTROL DE COOKIES EN MOVILES
 # ============================================================
 
 if not st.session_state.autenticado:
