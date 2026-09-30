@@ -184,17 +184,18 @@ def normalizar_url(url):
 
     url = url.strip()
 
+    # 1. Asegurar esquema https:// si no lo trae
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
 
     url = url.rstrip("/")
 
-    # Si la URL ya trae una subruta (ej. /AR528), la devolvemos directo
-    match_ruta = re.search(r"chesserp\.com/([a-zA-Z0-9]+)", url, re.IGNORECASE)
+    # 2. Si la URL ya tiene una instancia/subruta al final (ej. https://vifood.chesserp.com/AR528), la devolvemos limpia
+    match_ruta = re.search(r"chesserp\.com/([a-zA-Z0-9_-]+)$", url, re.IGNORECASE)
     if match_ruta:
         return url
 
-    # Si es solo el dominio ra¨ªz (ej. vifood.chesserp.com), consultamos la redirecci¨®n real
+    # 3. Si solo viene el dominio (ej. https://vifood.chesserp.com), consultamos la redirecci¨®n real del ERP
     if "chesserp.com" in url.lower():
         try:
             session_resolve = requests.Session()
@@ -204,20 +205,21 @@ def normalizar_url(url):
                     " (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                 )
             })
-            # verify=False para omitir errores de SSL y timeout corto para resolver r¨¢pido
+            # Consultar en vivo el dominio base permitiendo redirecciones (allow_redirects=True)
             res = session_resolve.get(
                 url, verify=False, timeout=6, allow_redirects=True
             )
             
-            # Extraer la URL final a la que redirigi¨® el servidor (ej. https://vifood.chesserp.com/AR528)
+            # Obtener la URL final a la que apunt¨® la redirecci¨®n del servidor
             url_final = res.url.split("/#")[0].split("?")[0].rstrip("/")
-            if url_final and "chesserp.com/" in url_final.lower():
+            
+            # Verificar si devolvi¨® una subruta (ej. https://vifood.chesserp.com/AR528)
+            if url_final and re.search(r"chesserp\.com/([a-zA-Z0-9_-]+)", url_final, re.IGNORECASE):
                 return url_final
         except Exception:
             pass
 
     return url
-
 
 def obtener_dominio(url):
     url = normalizar_url(url)
