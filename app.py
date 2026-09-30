@@ -184,18 +184,17 @@ def normalizar_url(url):
 
     url = url.strip()
 
-    # 1. Asegurar esquema https:// si no lo trae
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
 
     url = url.rstrip("/")
 
-    # 2. Si la URL ya tiene una instancia/subruta al final (ej. https://vifood.chesserp.com/AR528), la devolvemos limpia
-    match_ruta = re.search(r"chesserp\.com/([a-zA-Z0-9_-]+)$", url, re.IGNORECASE)
+    # 1. Si la URL pegada ya contiene una subruta e instancia (ej: https://vifood.chesserp.com/AR528), se retorna directamente
+    match_ruta = re.search(r"chesserp\.com/([a-zA-Z0-9_-]+)", url, re.IGNORECASE)
     if match_ruta:
         return url
 
-    # 3. Si solo viene el dominio (ej. https://vifood.chesserp.com), consultamos la redirecci¨®n real del ERP
+    # 2. Si s¨®lo viene el dominio base (ej: https://vifood.chesserp.com), se consulta la redirecci¨®n HTTP en vivo
     if "chesserp.com" in url.lower():
         try:
             session_resolve = requests.Session()
@@ -205,15 +204,13 @@ def normalizar_url(url):
                     " (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                 )
             })
-            # Consultar en vivo el dominio base permitiendo redirecciones (allow_redirects=True)
             res = session_resolve.get(
                 url, verify=False, timeout=6, allow_redirects=True
             )
             
-            # Obtener la URL final a la que apunt¨® la redirecci¨®n del servidor
+            # Extraer la ubicaci¨®n final devuelta por la redirecci¨®n del servidor
             url_final = res.url.split("/#")[0].split("?")[0].rstrip("/")
             
-            # Verificar si devolvi¨® una subruta (ej. https://vifood.chesserp.com/AR528)
             if url_final and re.search(r"chesserp\.com/([a-zA-Z0-9_-]+)", url_final, re.IGNORECASE):
                 return url_final
         except Exception:
