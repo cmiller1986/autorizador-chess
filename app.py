@@ -189,12 +189,12 @@ def normalizar_url(url):
 
     url = url.rstrip("/")
 
-    # 1. Si la URL pegada ya contiene una subruta e instancia (ej: https://vifood.chesserp.com/AR528), se retorna directamente
+    # 1. Si la URL ya contiene la subruta de la instancia (ej. https://vifood.chesserp.com/AR528), se retorna directamente
     match_ruta = re.search(r"chesserp\.com/([a-zA-Z0-9_-]+)", url, re.IGNORECASE)
     if match_ruta:
         return url
 
-    # 2. Si s¨®lo viene el dominio base (ej: https://vifood.chesserp.com), se consulta la redirecci¨®n HTTP en vivo
+    # 2. Consulta en vivo para dominios base (ej. https://vifood.chesserp.com)
     if "chesserp.com" in url.lower():
         try:
             session_resolve = requests.Session()
@@ -202,17 +202,26 @@ def normalizar_url(url):
                 "User-Agent": (
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
                     " (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                )
+                ),
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
             })
+            
+            # Consultar permitiendo redirecciones e ignorando verificaci¨®n SSL
             res = session_resolve.get(
-                url, verify=False, timeout=6, allow_redirects=True
+                url, verify=False, timeout=8, allow_redirects=True
             )
             
-            # Extraer la ubicaci¨®n final devuelta por la redirecci¨®n del servidor
+            # 2a. Evaluar URL final seg¨²n la respuesta HTTP (Redirecci¨®n 301/302)
             url_final = res.url.split("/#")[0].split("?")[0].rstrip("/")
-            
             if url_final and re.search(r"chesserp\.com/([a-zA-Z0-9_-]+)", url_final, re.IGNORECASE):
                 return url_final
+
+            # 2b. Fallback: Buscar dentro del HTML si hay una redirecci¨®n por script/meta tag
+            match_html = re.search(r'([a-zA-Z0-9_-]+)/?#/', res.text, re.IGNORECASE)
+            if match_html:
+                instancia = match_html.group(1)
+                return f"{url}/{instancia}"
+
         except Exception:
             pass
 
