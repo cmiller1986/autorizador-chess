@@ -311,15 +311,15 @@ def extraer_y_actualizar(mensaje):
     if not mensaje:
         return False
 
-    texto = mensaje.strip()
+    # 0. Limpieza previa de caracteres invisibles Unicode (NBSP \xa0)
+    texto = mensaje.replace("\xa0", " ").replace("\r", "").strip()
 
-    # 1. Extracci¨®n de Operador (Soporta n¨²meros o palabras como "Ahora")
+    # 1. Extraccion de Operador (Soporta nombres con acentos, tildes y marcas de tiempo)
     operador = ""
     patrones_operador = [
-        # Captura lo que est¨¢ antes de la coma siempre que le siga un texto de tiempo (ej. Ahora, 14 min, etc.)
-        r"^\s*([^,\n]+),\s*(?:ahora|hace\s+\w+|\d{1,2}(?::\d{2}|\s*(?:min|minutos|mins?))?)",
+        r"^\s*([^,\n]+),\s*(?:ahora|justo\s+ahora|hace\s+\w+|\d{1,2}(?::\d{2}|\s*(?:min|minutos|mins?))?)",
         r"(?:operador|usuario|solicitante|enviado por)\s*:\s*(.+?)(?=\n|$)",
-        r"^\s*([^,\n]+),",  # Fallback gen¨¦rico: todo lo que est¨¦ antes de la primera coma
+        r"^\s*([^,\n]+),",
     ]
 
     for patron in patrones_operador:
@@ -333,21 +333,24 @@ def extraer_y_actualizar(mensaje):
                 operador = op_candidate
                 break
 
-    # 2. Extracci¨®n de URL
+    # 2. Extraccion de URL (Robusta contra espacios invisibles despues de 'URL:')
     url_limpia = ""
-    patron_url = (
-        r"((?:https?://)?[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?::\d+)?(?:/[^\s#?]*)?)"
-    )
-    match_url = re.search(patron_url, texto, re.IGNORECASE)
+    match_linea_url = re.search(r"URL\s*:\s*([^\s\n]+)", texto, re.IGNORECASE)
 
-    if match_url:
-        raw_url = match_url.group(1).strip().rstrip(".,;")
-        if "http" in raw_url.lower():
-            idx = raw_url.lower().find("http")
-            raw_url = raw_url[idx:]
+    if match_linea_url:
+        raw_url = match_linea_url.group(1).strip().rstrip(".,;")
         url_limpia = normalizar_url(raw_url)
+    else:
+        patron_url = r"((?:https?://)?[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?::\d+)?(?:/[^\s#?]*)?)"
+        match_url = re.search(patron_url, texto, re.IGNORECASE)
+        if match_url:
+            raw_url = match_url.group(1).strip().rstrip(".,;")
+            if "http" in raw_url.lower():
+                idx = raw_url.lower().find("http")
+                raw_url = raw_url[idx:]
+            url_limpia = normalizar_url(raw_url)
 
-    # 3. Extracci¨®n de Ticket
+    # 3. Extraccion de Ticket
     ticket = ""
     patrones_ticket = [
         r"Ticket\s*:\s*#?\s*(\d+)",
@@ -360,11 +363,9 @@ def extraer_y_actualizar(mensaje):
             ticket = f"#{match_ticket.group(1)}"
             break
 
-    # 4. Extracci¨®n de Motivo
+    # 4. Extraccion de Motivo
     motivo = ""
-    match_motivo = re.search(
-        r"Motivo\s*:\s*(.+?)(?=\n|$)", texto, re.IGNORECASE
-    )
+    match_motivo = re.search(r"Motivo\s*:\s*(.+?)(?=\n|$)", texto, re.IGNORECASE)
     if match_motivo and match_motivo.group(1).strip():
         motivo = match_motivo.group(1).strip()
     else:
