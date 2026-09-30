@@ -189,43 +189,28 @@ def normalizar_url(url):
 
     url = url.rstrip("/")
 
-    # 1. Si la URL ya contiene la subruta de la instancia (ej. https://vifood.chesserp.com/AR528), se retorna directamente
-    match_ruta = re.search(r"chesserp\.com/([a-zA-Z0-9_-]+)", url, re.IGNORECASE)
-    if match_ruta:
-        return url
-
-    # 2. Consulta en vivo para dominios base (ej. https://vifood.chesserp.com)
-    if "chesserp.com" in url.lower():
+    match_ruta = re.search(r"chesserp\.com/([a-zA-Z0-9]+)", url, re.IGNORECASE)
+    if not match_ruta and "chesserp.com" in url.lower():
         try:
             session_resolve = requests.Session()
             session_resolve.headers.update({
                 "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                    " (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                ),
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+                    " AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0"
+                    " Safari/537.36"
+                )
             })
-            
-            # Consultar permitiendo redirecciones e ignorando verificaci¨®n SSL
             res = session_resolve.get(
-                url, verify=False, timeout=8, allow_redirects=True
+                url, verify=False, timeout=5, allow_redirects=True
             )
-            
-            # 2a. Evaluar URL final seg¨²n la respuesta HTTP (Redirecci¨®n 301/302)
             url_final = res.url.split("/#")[0].split("?")[0].rstrip("/")
-            if url_final and re.search(r"chesserp\.com/([a-zA-Z0-9_-]+)", url_final, re.IGNORECASE):
+            if url_final and url_final != url:
                 return url_final
-
-            # 2b. Fallback: Buscar dentro del HTML si hay una redirecci¨®n por script/meta tag
-            match_html = re.search(r'([a-zA-Z0-9_-]+)/?#/', res.text, re.IGNORECASE)
-            if match_html:
-                instancia = match_html.group(1)
-                return f"{url}/{instancia}"
-
         except Exception:
             pass
 
     return url
+
 
 def obtener_dominio(url):
     url = normalizar_url(url)
@@ -326,15 +311,15 @@ def extraer_y_actualizar(mensaje):
     if not mensaje:
         return False
 
-    # Limpieza de espacios no rompibles (caracteres invisibles)
-    texto = mensaje.replace("\xa0", " ").replace("\r", "").strip()
+    texto = mensaje.strip()
 
-    # 1. Extraccion de Operador
+    # 1. Extracci¨®n de Operador (Soporta n¨²meros o palabras como "Ahora")
     operador = ""
     patrones_operador = [
-        r"^\s*([^,\n]+),\s*(?:ahora|justo\s+ahora|hace\s+\w+|\d{1,2}(?::\d{2}|\s*(?:min|minutos|mins?))?)",
+        # Captura lo que est¨¢ antes de la coma siempre que le siga un texto de tiempo (ej. Ahora, 14 min, etc.)
+        r"^\s*([^,\n]+),\s*(?:ahora|hace\s+\w+|\d{1,2}(?::\d{2}|\s*(?:min|minutos|mins?))?)",
         r"(?:operador|usuario|solicitante|enviado por)\s*:\s*(.+?)(?=\n|$)",
-        r"^\s*([^,\n]+),",
+        r"^\s*([^,\n]+),",  # Fallback gen¨¦rico: todo lo que est¨¦ antes de la primera coma
     ]
 
     for patron in patrones_operador:
@@ -348,26 +333,21 @@ def extraer_y_actualizar(mensaje):
                 operador = op_candidate
                 break
 
-    # 2. Extraccion de URL
+    # 2. Extracci¨®n de URL
     url_limpia = ""
-    match_linea_url = re.search(r"URL\s*:\s*([^\s\n]+)", texto, re.IGNORECASE)
+    patron_url = (
+        r"((?:https?://)?[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?::\d+)?(?:/[^\s#?]*)?)"
+    )
+    match_url = re.search(patron_url, texto, re.IGNORECASE)
 
-    if match_linea_url:
-        raw_url = match_linea_url.group(1).strip().rstrip(".,;")
+    if match_url:
+        raw_url = match_url.group(1).strip().rstrip(".,;")
+        if "http" in raw_url.lower():
+            idx = raw_url.lower().find("http")
+            raw_url = raw_url[idx:]
         url_limpia = normalizar_url(raw_url)
-    else:
-        patron_url = (
-            r"((?:https?://)?[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?::\d+)?(?:/[^\s#?]*)?)"
-        )
-        match_url = re.search(patron_url, texto, re.IGNORECASE)
-        if match_url:
-            raw_url = match_url.group(1).strip().rstrip(".,;")
-            if "http" in raw_url.lower():
-                idx = raw_url.lower().find("http")
-                raw_url = raw_url[idx:]
-            url_limpia = normalizar_url(raw_url)
 
-    # 3. Extraccion de Ticket
+    # 3. Extracci¨®n de Ticket
     ticket = ""
     patrones_ticket = [
         r"Ticket\s*:\s*#?\s*(\d+)",
@@ -380,7 +360,7 @@ def extraer_y_actualizar(mensaje):
             ticket = f"#{match_ticket.group(1)}"
             break
 
-    # 4. Extraccion de Motivo
+    # 4. Extracci¨®n de Motivo
     motivo = ""
     match_motivo = re.search(
         r"Motivo\s*:\s*(.+?)(?=\n|$)", texto, re.IGNORECASE
@@ -404,7 +384,6 @@ def extraer_y_actualizar(mensaje):
     st.session_state.url_autorizada_lista = bool(url_limpia and operador)
 
     return True
-
 
 # ============================================================
 # AUTOMATIZACION HTTP CON MANEJO DE TIMEOUTS Y REINTENTOS
@@ -971,7 +950,7 @@ def vista_principal():
 
 
 # ============================================================
-# ARRANQUE / CONTROL DE COOKIES EN MOVILES
+# ARRANQUE / CONTROL DE COOKIES EN MÂ¨Â®VILES
 # ============================================================
 
 if not st.session_state.autenticado:
