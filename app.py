@@ -189,22 +189,29 @@ def normalizar_url(url):
 
     url = url.rstrip("/")
 
+    # Si la URL ya trae una subruta (ej. /AR528), la devolvemos directo
     match_ruta = re.search(r"chesserp\.com/([a-zA-Z0-9]+)", url, re.IGNORECASE)
-    if not match_ruta and "chesserp.com" in url.lower():
+    if match_ruta:
+        return url
+
+    # Si es solo el dominio ra¨ªz (ej. vifood.chesserp.com), consultamos la redirecci¨®n real
+    if "chesserp.com" in url.lower():
         try:
             session_resolve = requests.Session()
             session_resolve.headers.update({
                 "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-                    " AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0"
-                    " Safari/537.36"
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                    " (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                 )
             })
+            # verify=False para omitir errores de SSL y timeout corto para resolver r¨¢pido
             res = session_resolve.get(
-                url, verify=False, timeout=5, allow_redirects=True
+                url, verify=False, timeout=6, allow_redirects=True
             )
+            
+            # Extraer la URL final a la que redirigi¨® el servidor (ej. https://vifood.chesserp.com/AR528)
             url_final = res.url.split("/#")[0].split("?")[0].rstrip("/")
-            if url_final and url_final != url:
+            if url_final and "chesserp.com/" in url_final.lower():
                 return url_final
         except Exception:
             pass
